@@ -27,8 +27,6 @@ interface SellerProfilePayload {
   description: string;
   phone_number: string;
   location: LocationPayload;
-  logo?: string;       // URL/relative path from backend (non-file)
-  shop_image?: string; // URL/relative path ya picha ya nje (non-file)
 }
 
 interface SellerProfileResponse {
@@ -124,8 +122,6 @@ const SellerProfilePage: React.FC = () => {
     business_name: "",
     description: "",
     phone_number: "",
-    logo: "",
-    shop_image: "",
     location: {
       address: "",
       city: "",
@@ -202,8 +198,9 @@ const SellerProfilePage: React.FC = () => {
     const file = e.target.files?.[0] ?? null;
     if (!file) {
       setLogoFile(null);
+      // fallback: tumia kile kimetoka backend
       setLogoPreview(
-        sellerSummary?.logo_url || sellerSummary?.logo || form.logo || null,
+        sellerSummary?.logo_url || sellerSummary?.logo || null,
       );
       return;
     }
@@ -221,7 +218,6 @@ const SellerProfilePage: React.FC = () => {
       setShopImagePreview(
         sellerSummary?.shop_image_url ||
           sellerSummary?.shop_image ||
-          form.shop_image ||
           null,
       );
       return;
@@ -290,8 +286,6 @@ const SellerProfilePage: React.FC = () => {
         business_name: mine.business_name || "",
         description: mine.description || "",
         phone_number: mine.phone_number || "",
-        logo: mine.logo_url || mine.logo || "",
-        shop_image: mine.shop_image_url || mine.shop_image || "",
         location: {
           address: mine.location?.address || "",
           city: mine.location?.city || "",
@@ -410,12 +404,11 @@ const SellerProfilePage: React.FC = () => {
     setSuccess(null);
 
     try {
+      // ⚠️ HATUTUMI TENa logo/shop_image KAMA STRING KWENYE JSON
       const payload: SellerProfilePayload = {
         business_name: form.business_name,
         description: form.description,
         phone_number: form.phone_number,
-        logo: form.logo || undefined,
-        shop_image: form.shop_image || undefined,
         location: {
           address: form.location.address,
           city: form.location.city,
@@ -431,14 +424,14 @@ const SellerProfilePage: React.FC = () => {
       let baseSeller: SellerProfileResponse;
 
       if (sellerId) {
-        // ✅ UPDATE SELLER (JSON)
+        // ✅ UPDATE SELLER (JSON bila files)
         const res = await apiClient.put<SellerProfileResponse>(
           `/api/sellers/${sellerId}/`,
           payload,
         );
         baseSeller = res.data;
       } else {
-        // ✅ CREATE SELLER (JSON)
+        // ✅ CREATE SELLER (JSON bila files)
         const res = await apiClient.post<SellerProfileResponse>(
           "/api/sellers/",
           payload,
@@ -448,7 +441,7 @@ const SellerProfilePage: React.FC = () => {
 
       let finalSeller: SellerProfileResponse = baseSeller;
 
-      // ✅ PATCH LOGO file
+      // ✅ PATCH LOGO file (multipart/form-data)
       if (logoFile) {
         try {
           const fd = new FormData();
@@ -492,7 +485,7 @@ const SellerProfilePage: React.FC = () => {
         }
       }
 
-      // Sync state na seller wa mwisho (anayojumuisha logo na shop_image)
+      // Sync state na seller wa mwisho (anayojumuisha logo & shop_image)
       setSellerId(finalSeller.id);
       setSellerSummary(finalSeller);
       setForm((prev) => ({
@@ -500,11 +493,6 @@ const SellerProfilePage: React.FC = () => {
         business_name: finalSeller.business_name || prev.business_name,
         description: finalSeller.description || prev.description,
         phone_number: finalSeller.phone_number || prev.phone_number,
-        logo: finalSeller.logo_url || finalSeller.logo || prev.logo,
-        shop_image:
-          finalSeller.shop_image_url ||
-          finalSeller.shop_image ||
-          prev.shop_image,
         location: {
           ...prev.location,
           address: finalSeller.location?.address || prev.location.address,
