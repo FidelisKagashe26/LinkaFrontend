@@ -1,10 +1,5 @@
 // src/pages/ProductsPage.tsx
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import apiClient from "../lib/apiClient";
 import MainHeader from "../components/MainHeader";
@@ -21,6 +16,7 @@ interface SellerMini {
   id: number;
   business_name: string;
   user?: SellerUserMini;
+  logo_url?: string | null; // LOGO ya duka
 }
 
 interface ProductImage {
@@ -55,13 +51,6 @@ interface Product {
   is_liked?: boolean;
 }
 
-interface PaginatedProductList {
-  count: number;
-  next: string | null;
-  previous: string | null;
-  results: Product[];
-}
-
 interface Coords {
   lat: number;
   lng: number;
@@ -71,20 +60,31 @@ interface ConversationCreateResponse {
   id: number;
 }
 
+/**
+ * Helper: geuza distance_km (string/number/null) kuwa number safi au null
+ */
+const getNumericDistanceKm = (
+  raw: string | number | null | undefined,
+): number | null => {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === "number") {
+    if (Number.isNaN(raw)) return null;
+    return raw;
+  }
+  const parsed = parseFloat(raw);
+  if (Number.isNaN(parsed)) return null;
+  return parsed;
+};
+
+const PAGE_SIZE = 20;
+
 const ProductsPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
   const [products, setProducts] = useState<Product[]>([]);
-  const [count, setCount] = useState<number>(0);
-  const [pageSize, setPageSize] = useState<number>(25); // DRF default, tunai-overwrite toka kwenye response
   const [page, setPage] = useState<number>(1);
-
-  const totalPages = useMemo(
-    () => (pageSize > 0 ? Math.max(1, Math.ceil(count / pageSize)) : 1),
-    [count, pageSize],
-  );
 
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -93,12 +93,12 @@ const ProductsPage: React.FC = () => {
   const [query, setQuery] = useState<string>("");
   const [locationText, setLocationText] = useState<string>("");
 
-  // Geolocation
+  // Geolocation (raw)
   const [coords, setCoords] = useState<Coords | null>(null);
   const [geoLoading, setGeoLoading] = useState<boolean>(false);
   const [geoError, setGeoError] = useState<string | null>(null);
 
-  // Active filters
+  // Active filters (haya tunayoyatuma API)
   const [activeQuery, setActiveQuery] = useState<string>("");
   const [activeLocation, setActiveLocation] = useState<string>("");
   const [activeCoords, setActiveCoords] = useState<Coords | null>(null);
@@ -111,17 +111,14 @@ const ProductsPage: React.FC = () => {
   const [chatLoading, setChatLoading] = useState<Record<number, boolean>>({});
 
   /**
-   * Helper: chukua picha ya product
+   * Helper: chukua picha kuu ya product
    */
   const getMainImage = (product: Product): string | null => {
-    // 1. Kwanza tumia image_url ya moja kwa moja
     if (product.image_url) return product.image_url;
     if (product.image) return product.image;
 
-    // 2. Tumia primary image kama ipo
     const primary =
-      product.images?.find((img) => img.is_primary) ??
-      product.images?.[0];
+      product.images?.find((img) => img.is_primary) ?? product.images?.[0];
 
     if (primary?.image_url) return primary.image_url;
     if (primary?.image) return primary.image;
@@ -131,44 +128,41 @@ const ProductsPage: React.FC = () => {
 
   /**
    * Fetch products kutoka API
+   *
+   * MUHIMU:
+   * - Tunatumia /api/products/ PEKE YAKE.
+   * - Backend inarudisha ARRAY ya products (si {count, results}).
+   * - Kama activeCoords ipo → tunatuma lat & lng KU-PANGA kwa distance
+   *   (backend haifiltri kwa radius, ina-sort tu).
    */
   const fetchProducts = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const params = new URLSearchParams();
-      params.set("page", String(page));
+      const params: Record<string, string | number> = {};
 
-      if (activeQuery) params.set("search", activeQuery);
-      if (activeLocation) params.set("location", activeLocation);
-
-      let url: string;
+      if (activeQuery) params.search = activeQuery;
+      if (activeLocation) params.location = activeLocation;
       if (activeCoords) {
-        params.set("lat", String(activeCoords.lat));
-        params.set("lng", String(activeCoords.lng));
-        url = `/api/products/nearby/?${params.toString()}`;
-      } else {
-        url = `/api/products/?${params.toString()}`;
+        params.lat = activeCoords.lat;
+        params.lng = activeCoords.lng;
       }
 
-      const res = await apiClient.get<PaginatedProductList>(url);
-      setProducts(res.data.results);
-      setCount(res.data.count);
+      const res = await apiClient.get<Product[]>("/api/products/", {
+        params,
+      });
 
-      // Kama backend hutoa page_size tofauti, tuna-update kulingana na idadi halisi ya results
-      if (res.data.results.length > 0) {
-        setPageSize(res.data.results.length);
-      }
+      const data = Array.isArray(res.data) ? res.data : [];
+      setProducts(data);
     } catch (err) {
       console.error(err);
-      setError(
-        "Failed to load products. Please try again in a moment.",
-      );
+      setError("Failed to load products. Please try again in a moment.");
+      setProducts([]);
     } finally {
       setLoading(false);
     }
-  }, [activeCoords, activeLocation, activeQuery, page]);
+  }, [activeCoords, activeLocation, activeQuery]);
 
   useEffect(() => {
     void fetchProducts();
@@ -182,7 +176,7 @@ const ProductsPage: React.FC = () => {
     setPage(1);
     setActiveQuery(query.trim());
     setActiveLocation(locationText.trim());
-    setActiveCoords(coords);
+    setActiveCoords(coords); // kama kuna coords → sort by distance
   };
 
   /**
@@ -202,9 +196,11 @@ const ProductsPage: React.FC = () => {
         const { latitude, longitude } = pos.coords;
         const nextCoords: Coords = { lat: latitude, lng: longitude };
         setCoords(nextCoords);
+
         if (!locationText) {
           setLocationText("Current location");
         }
+
         setGeoLoading(false);
       },
       (err) => {
@@ -260,10 +256,7 @@ const ProductsPage: React.FC = () => {
   /**
    * Fungua chat na seller wa product
    */
-  const handleOpenChat = async (
-    productId: number,
-    sellerId?: number,
-  ) => {
+  const handleOpenChat = async (productId: number, sellerId?: number) => {
     if (!user) {
       const next = `${location.pathname}${location.search}`;
       navigate(`/login?next=${encodeURIComponent(next)}`);
@@ -303,6 +296,19 @@ const ProductsPage: React.FC = () => {
       setChatLoading((prev) => ({ ...prev, [productId]: false }));
     }
   };
+
+  // ======== CLIENT-SIDE PAGINATION (20/20) ========
+  const count = products.length;
+
+  const totalPages =
+    count > 0 ? Math.max(1, Math.ceil(count / PAGE_SIZE)) : 1;
+
+  const currentPage = Math.min(page, totalPages);
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
+  const paginatedProducts = products.slice(
+    startIndex,
+    startIndex + PAGE_SIZE,
+  );
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 transition-colors duration-300">
@@ -362,7 +368,8 @@ const ProductsPage: React.FC = () => {
                   </span>{" "}
                   au{" "}
                   <span className="font-semibold">Use my location</span> kupata
-                  bidhaa zilizo karibu nawe.
+                  bidhaa zilizo karibu nawe (backend inapanga kwa distance bila
+                  limit ya radius).
                 </li>
                 <li>
                   Bofya{" "}
@@ -490,9 +497,7 @@ const ProductsPage: React.FC = () => {
         <div className="flex items-center justify-between mb-3">
           <div>
             <h2 className="text-sm md:text-base font-semibold text-slate-900 dark:text-white">
-              {activeCoords
-                ? "Products near you"
-                : "Products on the marketplace"}
+              {activeCoords ? "Products near you" : "Products on the marketplace"}
             </h2>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
               {count} product{count === 1 ? "" : "s"} found
@@ -513,25 +518,18 @@ const ProductsPage: React.FC = () => {
         ) : products.length === 0 ? (
           <div className="text-sm text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 p-4 rounded-lg shadow-sm border border-dashed border-slate-200 dark:border-slate-700">
             No products found{" "}
-            {activeQuery || activeLocation
+            {activeQuery || activeLocation || activeCoords
               ? "for your current search."
               : "at the moment."}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-            {products.map((product) => {
+            {paginatedProducts.map((product) => {
               const hasCoords = product.latitude && product.longitude;
-              const mapsUrl = hasCoords
-                ? `https://www.google.com/maps/dir/?api=1&destination=${product.latitude},${product.longitude}`
-                : undefined;
 
-              const distanceRaw =
-                product.distance_km !== undefined &&
-                product.distance_km !== null
-                  ? Number(product.distance_km)
-                  : null;
+              const distanceRaw = getNumericDistanceKm(product.distance_km);
               const distanceLabel =
-                distanceRaw !== null && !Number.isNaN(distanceRaw)
+                distanceRaw !== null
                   ? `~ ${distanceRaw.toFixed(1)} km away`
                   : null;
 
@@ -551,8 +549,7 @@ const ProductsPage: React.FC = () => {
               const isLikeBusy = !!likeLoading[product.id];
               const isChatBusy = !!chatLoading[product.id];
 
-              const sellerAvatar =
-                product.seller?.user?.avatar_url ?? null;
+              const sellerLogo = product.seller?.logo_url ?? null;
 
               return (
                 <article
@@ -572,11 +569,11 @@ const ProductsPage: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Shop badge */}
+                    {/* Shop badge - LOGO YA DUKA */}
                     <div className="absolute left-2 top-2 flex items-center gap-1 bg-white/90 dark:bg-slate-900/90 rounded-full px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:text-slate-100 shadow-sm max-w-[70%]">
-                      {sellerAvatar && (
+                      {sellerLogo && (
                         <img
-                          src={sellerAvatar}
+                          src={sellerLogo}
                           alt={shopName}
                           className="w-4 h-4 rounded-full object-cover"
                         />
@@ -608,7 +605,7 @@ const ProductsPage: React.FC = () => {
                     </button>
 
                     {/* Distance */}
-                    {distanceLabel && (
+                    {distanceLabel && hasCoords && (
                       <div className="absolute right-2 bottom-2 bg-slate-900/85 text-white text-[10px] px-2 py-0.5 rounded-full shadow-sm">
                         {distanceLabel}
                       </div>
@@ -672,16 +669,6 @@ const ProductsPage: React.FC = () => {
                             Visit shop
                           </Link>
                         )}
-                        {mapsUrl && (
-                          <a
-                            href={mapsUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="px-3 py-1.5 rounded-full border border-orange-400 text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-500/10"
-                          >
-                            Map
-                          </a>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -691,23 +678,24 @@ const ProductsPage: React.FC = () => {
           </div>
         )}
 
+        {/* Client-side pagination – 20/20 per page */}
         {totalPages > 1 && (
           <div className="mt-5 flex items-center justify-center gap-2 text-xs text-slate-700 dark:text-slate-200">
             <button
               onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-              disabled={page === 1}
+              disabled={currentPage === 1}
               className="px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-50 hover:bg-slate-50 dark:hover:bg-slate-800"
             >
               Prev
             </button>
             <span>
-              Page {page} / {totalPages}
+              Page {currentPage} / {totalPages}
             </span>
             <button
               onClick={() =>
                 setPage((prev) => Math.min(totalPages, prev + 1))
               }
-              disabled={page === totalPages}
+              disabled={currentPage === totalPages}
               className="px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-50 hover:bg-slate-50 dark:hover:bg-slate-800"
             >
               Next

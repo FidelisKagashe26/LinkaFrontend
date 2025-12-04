@@ -9,15 +9,17 @@ import GoogleMapPreview, { type LatLng } from "../components/GoogleMapPreview";
 import MainHeader from "../components/MainHeader";
 import MainFooter from "../components/MainFooter";
 
+// -------------------- TYPES --------------------
+
 interface LocationPayload {
   address: string;
   city: string;
-  state?: string;
+  state: string;
   country: string;
-  postal_code?: string;
+  postal_code: string;
   latitude: string;
   longitude: string;
-  mapbox_place_id?: string;
+  mapbox_place_id: string;
 }
 
 interface SellerProfilePayload {
@@ -25,7 +27,8 @@ interface SellerProfilePayload {
   description: string;
   phone_number: string;
   location: LocationPayload;
-  logo?: string; // URL/relative path from backend (non-file)
+  logo?: string;       // URL/relative path from backend (non-file)
+  shop_image?: string; // URL/relative path ya picha ya nje (non-file)
 }
 
 interface SellerProfileResponse {
@@ -37,6 +40,9 @@ interface SellerProfileResponse {
   rating: string;
   total_sales: number;
   logo?: string | null;
+  logo_url?: string | null;
+  shop_image?: string | null;
+  shop_image_url?: string | null;
   user: {
     id: number;
     username: string;
@@ -106,16 +112,20 @@ const getMainProductImage = (p: MyProduct): string | null => {
   );
 };
 
+// -------------------- COMPONENT --------------------
+
 const SellerProfilePage: React.FC = () => {
   const { user } = useAuth();
   const { language } = useLanguage();
   const isSw = language === "sw";
 
+  // -------- FORM STATE --------
   const [form, setForm] = useState<SellerProfilePayload>({
     business_name: "",
     description: "",
     phone_number: "",
     logo: "",
+    shop_image: "",
     location: {
       address: "",
       city: "",
@@ -130,6 +140,9 @@ const SellerProfilePage: React.FC = () => {
 
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+
+  const [shopImageFile, setShopImageFile] = useState<File | null>(null);
+  const [shopImagePreview, setShopImagePreview] = useState<string | null>(null);
 
   const [sellerId, setSellerId] = useState<number | null>(null);
   const [sellerSummary, setSellerSummary] =
@@ -162,6 +175,8 @@ const SellerProfilePage: React.FC = () => {
     { id: "products", labelEn: "Products", labelSw: "Bidhaa" },
   ];
 
+  // -------- HANDLERS --------
+
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => {
@@ -187,12 +202,33 @@ const SellerProfilePage: React.FC = () => {
     const file = e.target.files?.[0] ?? null;
     if (!file) {
       setLogoFile(null);
-      setLogoPreview(sellerSummary?.logo || form.logo || null);
+      setLogoPreview(
+        sellerSummary?.logo_url || sellerSummary?.logo || form.logo || null,
+      );
       return;
     }
     setLogoFile(file);
     const objectUrl = URL.createObjectURL(file);
     setLogoPreview(objectUrl);
+  };
+
+  const handleShopImageFileChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ): void => {
+    const file = e.target.files?.[0] ?? null;
+    if (!file) {
+      setShopImageFile(null);
+      setShopImagePreview(
+        sellerSummary?.shop_image_url ||
+          sellerSummary?.shop_image ||
+          form.shop_image ||
+          null,
+      );
+      return;
+    }
+    setShopImageFile(file);
+    const objectUrl = URL.createObjectURL(file);
+    setShopImagePreview(objectUrl);
   };
 
   const loadMyProducts = async (sellerPk: number) => {
@@ -245,8 +281,8 @@ const SellerProfilePage: React.FC = () => {
     try {
       // ✅ API sahihi: seller wa current user
       const res = await apiClient.get<SellerProfileResponse>("/api/sellers/me/");
-
       const mine = res.data;
+
       setSellerId(mine.id);
       setSellerSummary(mine);
 
@@ -254,7 +290,8 @@ const SellerProfilePage: React.FC = () => {
         business_name: mine.business_name || "",
         description: mine.description || "",
         phone_number: mine.phone_number || "",
-        logo: mine.logo || "",
+        logo: mine.logo_url || mine.logo || "",
+        shop_image: mine.shop_image_url || mine.shop_image || "",
         location: {
           address: mine.location?.address || "",
           city: mine.location?.city || "",
@@ -267,12 +304,15 @@ const SellerProfilePage: React.FC = () => {
         },
       });
 
-      setLogoPreview(mine.logo || null);
+      setLogoPreview(mine.logo_url || mine.logo || null);
+      setShopImagePreview(mine.shop_image_url || mine.shop_image || null);
+
       setCompleted((prev) => ({
         ...prev,
         profile: true,
         location: !!mine.location,
       }));
+
       void loadMyProducts(mine.id);
     } catch (err) {
       console.error(err);
@@ -375,6 +415,7 @@ const SellerProfilePage: React.FC = () => {
         description: form.description,
         phone_number: form.phone_number,
         logo: form.logo || undefined,
+        shop_image: form.shop_image || undefined,
         location: {
           address: form.location.address,
           city: form.location.city,
@@ -405,13 +446,12 @@ const SellerProfilePage: React.FC = () => {
         baseSeller = res.data;
       }
 
-      let finalSeller = baseSeller;
+      let finalSeller: SellerProfileResponse = baseSeller;
 
-      // ✅ Kama kuna logoFile mpya, tuma PATCH multipart directly kwenye seller
+      // ✅ PATCH LOGO file
       if (logoFile) {
         try {
           const fd = new FormData();
-          // field name iendane na backend (ImageField kwenye SellerProfile): logo
           fd.append("logo", logoFile);
 
           const logoRes = await apiClient.patch<SellerProfileResponse>(
@@ -427,11 +467,32 @@ const SellerProfilePage: React.FC = () => {
           finalSeller = logoRes.data;
         } catch (uploadErr) {
           console.error("Failed to upload seller logo", uploadErr);
-          // hatuzuii profile nyingine, tutatoa tu onyo kwenye success message
         }
       }
 
-      // Sync state na seller wa mwisho (anayojumuisha logo kama imefanikiwa)
+      // ✅ PATCH SHOP IMAGE file (picha ya nje ya duka)
+      if (shopImageFile) {
+        try {
+          const fdShop = new FormData();
+          fdShop.append("shop_image", shopImageFile);
+
+          const shopRes = await apiClient.patch<SellerProfileResponse>(
+            `/api/sellers/${baseSeller.id}/`,
+            fdShop,
+            {
+              headers: {
+                "Content-Type": "multipart/form-data",
+              },
+            },
+          );
+
+          finalSeller = shopRes.data;
+        } catch (uploadErr) {
+          console.error("Failed to upload shop_image", uploadErr);
+        }
+      }
+
+      // Sync state na seller wa mwisho (anayojumuisha logo na shop_image)
       setSellerId(finalSeller.id);
       setSellerSummary(finalSeller);
       setForm((prev) => ({
@@ -439,7 +500,11 @@ const SellerProfilePage: React.FC = () => {
         business_name: finalSeller.business_name || prev.business_name,
         description: finalSeller.description || prev.description,
         phone_number: finalSeller.phone_number || prev.phone_number,
-        logo: finalSeller.logo || prev.logo,
+        logo: finalSeller.logo_url || finalSeller.logo || prev.logo,
+        shop_image:
+          finalSeller.shop_image_url ||
+          finalSeller.shop_image ||
+          prev.shop_image,
         location: {
           ...prev.location,
           address: finalSeller.location?.address || prev.location.address,
@@ -450,10 +515,15 @@ const SellerProfilePage: React.FC = () => {
             finalSeller.location?.postal_code || prev.location.postal_code,
           latitude: finalSeller.location?.latitude || prev.location.latitude,
           longitude: finalSeller.location?.longitude || prev.location.longitude,
+          mapbox_place_id: prev.location.mapbox_place_id,
         },
       }));
-      setLogoPreview(finalSeller.logo || null);
+      setLogoPreview(finalSeller.logo_url || finalSeller.logo || null);
+      setShopImagePreview(
+        finalSeller.shop_image_url || finalSeller.shop_image || null,
+      );
       setLogoFile(null);
+      setShopImageFile(null);
 
       setCompleted((prev) => ({
         ...prev,
@@ -500,6 +570,8 @@ const SellerProfilePage: React.FC = () => {
     if (step === "location") return completed.location;
     return completed.products;
   };
+
+  // -------------------- RENDER --------------------
 
   if (!user) {
     return (
@@ -723,40 +795,87 @@ const SellerProfilePage: React.FC = () => {
                       />
                     </div>
 
-                    {/* COMPANY LOGO FIELD */}
-                    <div>
-                      <label className="block text-xs text-slate-700 dark:text-slate-200 mb-1">
-                        {isSw
-                          ? "Picha / logo la kampuni"
-                          : "Company logo / picture"}
-                      </label>
-                      <div className="flex items-center gap-3">
-                        <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden text-[10px] text-slate-500 dark:text-slate-300">
-                          {logoPreview ? (
-                            <img
-                              src={logoPreview}
-                              alt="Logo preview"
-                              className="w-full h-full object-cover"
-                            />
-                          ) : (
-                            <span>{isSw ? "Hakuna logo" : "No logo"}</span>
-                          )}
-                        </div>
-                        <label className="text-[11px] px-3 py-1.5 rounded-full border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-100 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer">
-                          {isSw ? "Chagua picha..." : "Choose image..."}
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={handleLogoFileChange}
-                          />
+                    {/* LOGO + SHOP IMAGE FIELDS */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* COMPANY LOGO FIELD */}
+                      <div>
+                        <label className="block text-xs text-slate-700 dark:text-slate-200 mb-1">
+                          {isSw
+                            ? "Logo ya kampuni / brand"
+                            : "Company / brand logo"}
                         </label>
+                        <div className="flex items-center gap-3">
+                          <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden text-[10px] text-slate-500 dark:text-slate-300">
+                            {logoPreview ? (
+                              <img
+                                src={logoPreview}
+                                alt="Logo preview"
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <span>
+                                {isSw ? "Hakuna logo" : "No logo"}
+                              </span>
+                            )}
+                          </div>
+                          <label className="text-[11px] px-3 py-1.5 rounded-full border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-100 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer">
+                            {isSw ? "Chagua picha..." : "Choose image..."}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={handleLogoFileChange}
+                            />
+                          </label>
+                        </div>
+                        <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                          {isSw
+                            ? "Logo itaonekana kama kitambulisho kidogo karibu na jina la duka kwenye sehemu mbalimbali."
+                            : "Logo will be used as a small avatar next to your shop name across the app."}
+                        </p>
                       </div>
-                      <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
-                        {isSw
-                          ? "Tumia picha ndogo (JPG/PNG) yenye uzito mdogo, mfano chini ya 2MB."
-                          : "Use a small JPG/PNG image, preferably under 2MB."}
-                      </p>
+
+                      {/* SHOP FRONT IMAGE FIELD */}
+                      <div>
+                        <label className="block text-xs text-slate-700 dark:text-slate-200 mb-1">
+                          {isSw
+                            ? "Picha ya nje ya duka (facade)"
+                            : "Shop front photo (facade)"}
+                        </label>
+                        <div className="flex items-center gap-3">
+                          <div className="w-20 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden text-[10px] text-slate-500 dark:text-slate-300">
+                            {shopImagePreview ? (
+                              <img
+                                src={shopImagePreview}
+                                alt="Shop front preview"
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <span>
+                                {isSw
+                                  ? "Hakuna picha ya duka"
+                                  : "No shop photo"}
+                              </span>
+                            )}
+                          </div>
+                          <label className="text-[11px] px-3 py-1.5 rounded-full border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-100 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer">
+                            {isSw
+                              ? "Weka picha ya duka..."
+                              : "Upload shop photo..."}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={handleShopImageFileChange}
+                            />
+                          </label>
+                        </div>
+                        <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                          {isSw
+                            ? "Picha hii itaonekana kwenye Nearby products na kwenye ukurasa wa orodha ya maduka (Sellers). Chagua picha ya mbele ya duka ili mteja akifikia atambue haraka."
+                            : "This photo will be shown on Nearby products and on the Sellers list page. Use a clear front view of your shop so customers can recognize it quickly."}
+                        </p>
+                      </div>
                     </div>
                   </>
                 )}
@@ -969,7 +1088,9 @@ const SellerProfilePage: React.FC = () => {
 
                 {loadingProducts ? (
                   <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                    {isSw ? "Inapakia bidhaa zako..." : "Loading your products..."}
+                    {isSw
+                      ? "Inapakia bidhaa zako..."
+                      : "Loading your products..."}
                   </div>
                 ) : productsError ? (
                   <div className="text-[11px] text-red-600 bg-red-50 dark:bg-red-950/40 p-2 rounded border border-red-100 dark:border-red-900">
