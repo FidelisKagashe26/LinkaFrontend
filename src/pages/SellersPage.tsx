@@ -323,7 +323,7 @@ const SellersPage: React.FC = () => {
       <Link
         key={seller.id}
         to={`/shops/${seller.id}`}
-        className="group rounded-2xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm hover:border-orange-500/70 hover:shadow-md transition overflow-hidden"
+        className="group flex flex-col rounded-2xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm hover:border-orange-500/70 hover:shadow-md transition overflow-hidden"
       >
         {/* COVER IMAGE + LOGO OVERLAY */}
         <div className="relative">
@@ -355,7 +355,7 @@ const SellersPage: React.FC = () => {
         </div>
 
         {/* CONTENT */}
-        <div className="px-4 pt-6 pb-3">
+        <div className="flex-1 flex flex-col px-4 pt-6 pb-4">
           <div className="flex items-start justify-between gap-2 mb-1">
             <h2 className="text-sm font-semibold text-slate-900 dark:text-white group-hover:text-orange-600 dark:group-hover:text-orange-400">
               {seller.business_name}
@@ -396,15 +396,14 @@ const SellersPage: React.FC = () => {
             )}
           </div>
 
-          {/* CTA: Visit + Start route (Sw + Eng) */}
-          <div className="mt-3 flex items-center justify-between gap-2 text-[11px]">
+          {/* CTA: Visit + Start route (Sw + Eng) - zikae chini */}
+          <div className="mt-auto pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 text-[11px]">
             <div className="flex flex-col">
               <span className="font-medium text-slate-800 dark:text-slate-100">
                 Tembelea duka · Visit shop
               </span>
               <span className="text-slate-400 dark:text-slate-500">
-                Bofya card kufungua ukurasa wa duka / Click card to open shop
-                page
+                Bofya card kufungua ukurasa wa duka / Click to open shop page
               </span>
             </div>
 
@@ -426,11 +425,11 @@ const SellersPage: React.FC = () => {
                 onClick={(e) => e.stopPropagation()}
                 className="inline-flex items-center justify-center px-2.5 py-1 rounded-full border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-200 text-[11px] hover:border-orange-500 hover:text-orange-600"
               >
-                Angalia ramani / View map
+                Ramani / Map
               </a>
             ) : (
               <span className="text-[10px] text-slate-400 dark:text-slate-500">
-                Hakuna coordinates / No coordinates
+                Hakuna coordinates
               </span>
             )}
           </div>
@@ -451,9 +450,9 @@ const SellersPage: React.FC = () => {
           const mapEmbedUrl = buildMapEmbedUrl(selectedSeller);
 
           return (
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.5fr)]">
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.5fr)]">
               {/* List ya maduka max 5 */}
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {displayed.map((seller) => {
                   const isSelected = seller.id === selectedSellerId;
                   const distanceLabel = formatDistance(seller.distance);
@@ -467,87 +466,91 @@ const SellersPage: React.FC = () => {
                       key={seller.id}
                       type="button"
                       onClick={() => setSelectedSellerId(seller.id)}
-                      className={`w-full text-left rounded-2xl border p-4 shadow-sm transition overflow-hidden ${
+                      className={`w-full text-left rounded-2xl border shadow-sm transition overflow-hidden ${
                         isSelected
                           ? "border-orange-500 bg-orange-50/50 dark:bg-orange-500/10"
                           : "border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-orange-400 hover:shadow-md"
                       }`}
                     >
-                      {/* COVER + LOGO */}
-                      <div className="relative -mx-4 -mt-4 mb-5">
-                        {coverImage ? (
-                          <img
-                            src={coverImage}
-                            alt={seller.business_name}
-                            className="w-full h-28 object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-28 bg-linear-to-r from-slate-200 to-slate-100 dark:from-slate-800 dark:to-slate-700 flex items-center justify-center text-[11px] text-slate-500 dark:text-slate-300">
-                            Hakuna picha ya duka / No shop photo
-                          </div>
-                        )}
-                        <div className="absolute left-4 bottom-[-18px]">
-                          <div className="w-9 h-9 rounded-full border-2 border-white dark:border-slate-900 bg-slate-200 dark:bg-slate-800 flex items-center justify-center overflow-hidden text-[10px] text-slate-700 dark:text-slate-200">
-                            {logoImage ? (
+                      <div className="flex flex-col h-full">
+                        <div className="p-4 pb-3">
+                          {/* COVER + LOGO */}
+                          <div className="relative -mx-4 -mt-4 mb-5">
+                            {coverImage ? (
                               <img
-                                src={logoImage}
-                                alt={`${seller.business_name} logo`}
-                                className="w-full h-full object-cover"
+                                src={coverImage}
+                                alt={seller.business_name}
+                                className="w-full h-28 object-cover"
                               />
                             ) : (
-                              <span>{initial || "S"}</span>
+                              <div className="w-full h-28 bg-linear-to-r from-slate-200 to-slate-100 dark:from-slate-800 dark:to-slate-700 flex items-center justify-center text-[11px] text-slate-500 dark:text-slate-300">
+                                Hakuna picha ya duka / No shop photo
+                              </div>
+                            )}
+                            <div className="absolute left-4 bottom-[-18px]">
+                              <div className="w-9 h-9 rounded-full border-2 border-white dark:border-slate-900 bg-slate-200 dark:bg-slate-800 flex items-center justify-center overflow-hidden text-[10px] text-slate-700 dark:text-slate-200">
+                                {logoImage ? (
+                                  <img
+                                    src={logoImage}
+                                    alt={`${seller.business_name} logo`}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <span>{initial || "S"}</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="pt-1">
+                            <div className="flex items-start justify-between gap-2 mb-1">
+                              <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+                                {seller.business_name}
+                              </h2>
+                              {seller.is_verified && (
+                                <span className="inline-flex items-center gap-1 px-2 py-[3px] rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-[10px] text-emerald-700 dark:text-emerald-300">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                  Verified
+                                </span>
+                              )}
+                            </div>
+
+                            {seller.location && (
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">
+                                {seller.location.city || ""}{" "}
+                                {seller.location.city &&
+                                  seller.location.country &&
+                                  "•"}{" "}
+                                {seller.location.country || ""}
+                              </div>
+                            )}
+
+                            <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 mb-1">
+                              <span>
+                                ⭐{" "}
+                                {Number.isFinite(seller.rating)
+                                  ? seller.rating.toFixed(1)
+                                  : seller.rating}{" "}
+                                • {seller.total_sales} sales
+                                {distanceLabel && <> • {distanceLabel}</>}
+                              </span>
+                              {seller.phone_number && (
+                                <span className="truncate">
+                                  {seller.phone_number}
+                                </span>
+                              )}
+                            </div>
+
+                            {seller.description && (
+                              <p className="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2">
+                                {seller.description}
+                              </p>
                             )}
                           </div>
                         </div>
-                      </div>
 
-                      <div className="pt-1">
-                        <div className="flex items-start justify-between gap-2 mb-1">
-                          <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-                            {seller.business_name}
-                          </h2>
-                          {seller.is_verified && (
-                            <span className="inline-flex items-center gap-1 px-2 py-[3px] rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-[10px] text-emerald-700 dark:text-emerald-300">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                              Verified
-                            </span>
-                          )}
-                        </div>
-
-                        {seller.location && (
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">
-                            {seller.location.city || ""}{" "}
-                            {seller.location.city &&
-                              seller.location.country &&
-                              "•"}{" "}
-                            {seller.location.country || ""}
-                          </div>
-                        )}
-
-                        <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 mb-1">
-                          <span>
-                            ⭐{" "}
-                            {Number.isFinite(seller.rating)
-                              ? seller.rating.toFixed(1)
-                              : seller.rating}{" "}
-                            • {seller.total_sales} sales
-                            {distanceLabel && <> • {distanceLabel}</>}
-                          </span>
-                          {seller.phone_number && (
-                            <span className="truncate">
-                              {seller.phone_number}
-                            </span>
-                          )}
-                        </div>
-
-                        {seller.description && (
-                          <p className="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2 mb-3">
-                            {seller.description}
-                          </p>
-                        )}
-
-                        {/* Quick actions: simu, directions, bidhaa (Sw + Eng) */}
-                        <div className="flex flex-wrap gap-2 text-[11px]">
+                        {/* Quick actions: simu, directions, bidhaa (Sw + Eng) - all bottom */}
+                        <div className="mt-auto px-4 pt-2 pb-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap gap-2 text-[11px]">
                           {seller.phone_number && (
                             <a
                               href={`tel:${seller.phone_number}`}
@@ -634,7 +637,7 @@ const SellersPage: React.FC = () => {
       <main className="flex-1">
         <div className="max-w-5xl mx-auto px-4 py-6">
           {/* Title + Filters */}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
             <div>
               <h1 className="text-lg font-semibold text-slate-900 dark:text-white">
                 Sellers kwenye LINKA
@@ -675,7 +678,7 @@ const SellersPage: React.FC = () => {
           </div>
 
           {/* Search + Near me controls */}
-          <div className="mb-5 space-y-3">
+          <div className="mb-6 space-y-3">
             <form
               onSubmit={handleSearchSubmit}
               className="flex flex-col gap-2 sm:flex-row sm:items-center"
@@ -764,7 +767,7 @@ const SellersPage: React.FC = () => {
           ) : mode === "nearby" && nearbyLayout ? (
             nearbyLayout
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
               {sellers.map((seller) => renderSellerGridCard(seller))}
             </div>
           )}
