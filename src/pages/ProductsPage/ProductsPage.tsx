@@ -1,10 +1,12 @@
 // src/pages/ProductsPage.tsx
 import React, { useCallback, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import apiClient from "../lib/apiClient";
-import MainHeader from "../components/MainHeader";
-import MainFooter from "../components/MainFooter";
-import { useAuth } from "../contexts/AuthContext";
+import apiClient from "../../lib/apiClient";
+import MainHeader from "../../components/MainHeader";
+import MainFooter from "../../components/MainFooter";
+import { useAuth } from "../../contexts/AuthContext";
+import { useLanguage } from "../../contexts/LanguageContext";
+import { getProductsPageTexts } from "./productsPageTexts";
 
 interface SellerUserMini {
   id: number;
@@ -16,7 +18,7 @@ interface SellerMini {
   id: number;
   business_name: string;
   user?: SellerUserMini;
-  logo_url?: string | null; // LOGO ya duka
+  logo_url?: string | null;
 }
 
 interface ProductImage {
@@ -30,7 +32,7 @@ interface Product {
   id: number;
   name: string;
   description: string;
-  price: string; // decimal kama string
+  price: string;
   currency: string;
 
   image_url?: string | null;
@@ -82,6 +84,11 @@ const ProductsPage: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+
+  const { language } = useLanguage();
+  const texts = getProductsPageTexts(language);
+  const { hero, help, searchForm, geolocation, filters, results, status, card, pagination } =
+    texts;
 
   const [products, setProducts] = useState<Product[]>([]);
   const [page, setPage] = useState<number>(1);
@@ -157,12 +164,13 @@ const ProductsPage: React.FC = () => {
       setProducts(data);
     } catch (err) {
       console.error(err);
-      setError("Failed to load products. Please try again in a moment.");
+      const t = getProductsPageTexts(language);
+      setError(t.status.loadError);
       setProducts([]);
     } finally {
       setLoading(false);
     }
-  }, [activeCoords, activeLocation, activeQuery]);
+  }, [activeCoords, activeLocation, activeQuery, language]);
 
   useEffect(() => {
     void fetchProducts();
@@ -184,7 +192,7 @@ const ProductsPage: React.FC = () => {
    */
   const handleUseMyLocation = () => {
     if (!navigator.geolocation) {
-      setGeoError("Your browser does not support geolocation.");
+      setGeoError(geolocation.browserUnsupported);
       return;
     }
 
@@ -198,14 +206,14 @@ const ProductsPage: React.FC = () => {
         setCoords(nextCoords);
 
         if (!locationText) {
-          setLocationText("Current location");
+          setLocationText(geolocation.currentLocationLabel);
         }
 
         setGeoLoading(false);
       },
       (err) => {
         console.error(err);
-        setGeoError("Could not get your location. Please try again.");
+        setGeoError(geolocation.couldNotGetLocation);
         setGeoLoading(false);
       },
     );
@@ -321,18 +329,17 @@ const ProductsPage: React.FC = () => {
           <div className="flex items-center justify-between gap-3 mb-4">
             <div>
               <h1 className="text-base md:text-lg font-semibold text-slate-900 dark:text-white">
-                Marketplace products
+                {hero.title}
               </h1>
               <p className="text-[11px] md:text-[12px] text-slate-500 dark:text-slate-400">
-                Search items from different shops, chat in real time with
-                sellers and place your orders.
+                {hero.subtitle}
               </p>
             </div>
 
             <div className="flex items-center gap-3">
               <div className="hidden sm:flex flex-col items-end">
                 <span className="text-[11px] text-slate-400 dark:text-slate-500">
-                  Active products
+                  {hero.activeProductsLabel}
                 </span>
                 <span className="text-lg font-extrabold text-orange-500">
                   {count}
@@ -343,7 +350,7 @@ const ProductsPage: React.FC = () => {
                 onClick={() => setShowHelp((prev) => !prev)}
                 className="px-3 py-1.5 rounded-full border border-slate-300 dark:border-slate-600 bg-white/90 dark:bg-slate-900 text-[11px] font-medium text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-sm"
               >
-                {showHelp ? "Hide help" : "Help"}
+                {showHelp ? help.hideHelp : help.showHelp}
               </button>
             </div>
           </div>
@@ -352,37 +359,12 @@ const ProductsPage: React.FC = () => {
           {showHelp && (
             <div className="mb-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-900/90 p-3 text-[11px] text-slate-600 dark:text-slate-300 shadow-sm">
               <p className="mb-1 font-semibold text-slate-800 dark:text-white">
-                How this marketplace works
+                {help.title}
               </p>
               <ul className="list-disc list-inside space-y-0.5">
-                <li>
-                  Andika jina la bidhaa kwenye{" "}
-                  <span className="font-semibold">
-                    &quot;What are you looking for?&quot;
-                  </span>
-                </li>
-                <li>
-                  Tumia{" "}
-                  <span className="font-semibold">
-                    &quot;Where are you?&quot;
-                  </span>{" "}
-                  au{" "}
-                  <span className="font-semibold">Use my location</span> kupata
-                  bidhaa zilizo karibu nawe (backend inapanga kwa distance bila
-                  limit ya radius).
-                </li>
-                <li>
-                  Bofya{" "}
-                  <span className="font-semibold">
-                    View details &amp; order
-                  </span>{" "}
-                  kuona maelezo na kuanza oda.
-                </li>
-                <li>
-                  Bofya <span className="font-semibold">Chat</span> kuanza{" "}
-                  <span className="font-semibold">real-time chat</span> na
-                  muuzaji.
-                </li>
+                {help.items.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
               </ul>
             </div>
           )}
@@ -394,20 +376,20 @@ const ProductsPage: React.FC = () => {
           >
             <div className="flex-1">
               <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">
-                What are you looking for?
+                {searchForm.queryLabel}
               </label>
               <input
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-orange-500/70 focus:border-orange-500"
-                placeholder="e.g. HP laptop, smartphone, sofa..."
+                placeholder={searchForm.queryPlaceholder}
               />
             </div>
 
             <div className="flex-1">
               <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-1">
-                Where are you?
+                {searchForm.locationLabel}
               </label>
               <div className="flex gap-2">
                 <input
@@ -415,7 +397,7 @@ const ProductsPage: React.FC = () => {
                   value={locationText}
                   onChange={(e) => setLocationText(e.target.value)}
                   className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-orange-500/70 focus:border-orange-500"
-                  placeholder="e.g. Dodoma, Sinza, Mlimani City..."
+                  placeholder={searchForm.locationPlaceholder}
                 />
                 <button
                   type="button"
@@ -423,13 +405,15 @@ const ProductsPage: React.FC = () => {
                   disabled={geoLoading}
                   className="whitespace-nowrap px-3 py-2 rounded-xl border border-orange-500 text-orange-600 dark:text-orange-400 text-[11px] font-medium bg-white dark:bg-slate-950 hover:bg-orange-50 dark:hover:bg-orange-500/10 disabled:opacity-60"
                 >
-                  {geoLoading ? "Detecting..." : "Use my location"}
+                  {geoLoading
+                    ? geolocation.detectingLocation
+                    : searchForm.useMyLocation}
                 </button>
               </div>
               {coords && (
                 <div className="mt-1 text-[10px] text-green-600 dark:text-emerald-400">
-                  Location detected ✔ (lat: {coords.lat.toFixed(3)}, lng:{" "}
-                  {coords.lng.toFixed(3)})
+                  {geolocation.locationDetectedPrefix} ✔ (lat:{" "}
+                  {coords.lat.toFixed(3)}, lng: {coords.lng.toFixed(3)})
                 </div>
               )}
               {geoError && (
@@ -444,7 +428,7 @@ const ProductsPage: React.FC = () => {
                 type="submit"
                 className="w-full md:w-auto px-4 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-semibold hover:bg-orange-600 shadow-sm"
               >
-                Search
+                {searchForm.searchButton}
               </button>
             </div>
           </form>
@@ -453,20 +437,20 @@ const ProductsPage: React.FC = () => {
           <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
             {activeQuery || activeLocation || activeCoords ? (
               <>
-                <span>Active filters:</span>
+                <span>{filters.activeFiltersLabel}</span>
                 {activeQuery && (
                   <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
-                    product: &quot;{activeQuery}&quot;
+                    {filters.productLabel}: &quot;{activeQuery}&quot;
                   </span>
                 )}
                 {activeLocation && (
                   <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
-                    location: &quot;{activeLocation}&quot;
+                    {filters.locationLabel}: &quot;{activeLocation}&quot;
                   </span>
                 )}
                 {activeCoords && !activeLocation && (
                   <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200">
-                    using current location
+                    {filters.usingCurrentLocation}
                   </span>
                 )}
 
@@ -475,18 +459,18 @@ const ProductsPage: React.FC = () => {
                   onClick={handleClearLocation}
                   className="ml-1 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200"
                 >
-                  Clear location
+                  {filters.clearLocation}
                 </button>
                 <button
                   type="button"
                   onClick={handleClearAll}
                   className="px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200"
                 >
-                  Clear all
+                  {filters.clearAll}
                 </button>
               </>
             ) : (
-              <span>No filters applied. Showing general products.</span>
+              <span>{filters.noFilters}</span>
             )}
           </div>
         </div>
@@ -497,10 +481,10 @@ const ProductsPage: React.FC = () => {
         <div className="flex items-center justify-between mb-3">
           <div>
             <h2 className="text-sm md:text-base font-semibold text-slate-900 dark:text-white">
-              {activeCoords ? "Products near you" : "Products on the marketplace"}
+              {activeCoords ? results.titleNear : results.titleAll}
             </h2>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              {count} product{count === 1 ? "" : "s"} found
+              {results.countLabel(count)}
             </p>
           </div>
         </div>
@@ -513,14 +497,13 @@ const ProductsPage: React.FC = () => {
 
         {loading ? (
           <div className="text-sm text-slate-600 dark:text-slate-300">
-            Loading products...
+            {status.loading}
           </div>
         ) : products.length === 0 ? (
           <div className="text-sm text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 p-4 rounded-lg shadow-sm border border-dashed border-slate-200 dark:border-slate-700">
-            No products found{" "}
             {activeQuery || activeLocation || activeCoords
-              ? "for your current search."
-              : "at the moment."}
+              ? results.noProductsWithFilters
+              : results.noProductsGeneral}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
@@ -530,7 +513,7 @@ const ProductsPage: React.FC = () => {
               const distanceRaw = getNumericDistanceKm(product.distance_km);
               const distanceLabel =
                 distanceRaw !== null
-                  ? `~ ${distanceRaw.toFixed(1)} km away`
+                  ? card.distanceLabel(distanceRaw)
                   : null;
 
               const sellerId =
@@ -565,7 +548,7 @@ const ProductsPage: React.FC = () => {
                       />
                     ) : (
                       <div className="w-full h-40 md:h-44 bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 dark:text-slate-500 text-xs">
-                        No image
+                        {card.noImage}
                       </div>
                     )}
 
@@ -635,7 +618,7 @@ const ProductsPage: React.FC = () => {
                       {product.city && <span>{product.city}</span>}
                       {product.is_available === false && (
                         <span className="text-red-500 font-semibold">
-                          Out of stock
+                          {card.outOfStock}
                         </span>
                       )}
                     </div>
@@ -646,7 +629,7 @@ const ProductsPage: React.FC = () => {
                           to={`/products/${product.id}`}
                           className="px-3 py-1.5 rounded-full bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-medium hover:bg-black dark:hover:bg-slate-200 text-[11px]"
                         >
-                          View details &amp; order
+                          {card.viewDetails}
                         </Link>
                         <button
                           type="button"
@@ -656,7 +639,7 @@ const ProductsPage: React.FC = () => {
                           disabled={isChatBusy}
                           className="px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-60"
                         >
-                          {isChatBusy ? "Opening..." : "Chat"}
+                          {isChatBusy ? card.openingChat : card.chat}
                         </button>
                       </div>
 
@@ -666,7 +649,7 @@ const ProductsPage: React.FC = () => {
                             to={`/shops/${sellerId}`}
                             className="px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800"
                           >
-                            Visit shop
+                            {card.visitShop}
                           </Link>
                         )}
                       </div>
@@ -686,10 +669,10 @@ const ProductsPage: React.FC = () => {
               disabled={currentPage === 1}
               className="px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-50 hover:bg-slate-50 dark:hover:bg-slate-800"
             >
-              Prev
+              {pagination.prev}
             </button>
             <span>
-              Page {currentPage} / {totalPages}
+              {pagination.pageLabel(currentPage, totalPages)}
             </span>
             <button
               onClick={() =>
@@ -698,7 +681,7 @@ const ProductsPage: React.FC = () => {
               disabled={currentPage === totalPages}
               className="px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 disabled:opacity-50 hover:bg-slate-50 dark:hover:bg-slate-800"
             >
-              Next
+              {pagination.next}
             </button>
           </div>
         )}

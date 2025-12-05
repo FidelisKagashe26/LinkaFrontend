@@ -4,7 +4,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
-import ProductsPage from "./pages/ProductsPage";
+import ProductsPage from "./pages/ProductsPage/ProductsPage";
 import SellerProfilePage from "./pages/SellerProfilePage";
 import NearbyProductsPage from "./pages/NearbyProductsPage";
 import ProductCreatePage from "./pages/ProductCreatePage";
