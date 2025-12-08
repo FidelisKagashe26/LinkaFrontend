@@ -1,14 +1,13 @@
 // src/pages/SellerProfilePage.tsx
-
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import axios from "axios";
-import apiClient from "../lib/apiClient";
-import { useAuth } from "../contexts/AuthContext";
-import { useLanguage } from "../contexts/LanguageContext";
-import GoogleMapPreview, { type LatLng } from "../components/GoogleMapPreview";
-import MainHeader from "../components/MainHeader";
-import MainFooter from "../components/MainFooter";
+import apiClient from "../../lib/apiClient";
+import { useAuth } from "../../contexts/AuthContext";
+import { useLanguage } from "../../contexts/LanguageContext";
+import GoogleMapPreview, { type LatLng } from "../../components/GoogleMapPreview";
+import MainHeader from "../../components/MainHeader";
+import MainFooter from "../../components/MainFooter";
 
 // Phone input ya mataifa yote
 import PhoneInput from "react-phone-input-2";
@@ -176,6 +175,8 @@ const SellerProfilePage: React.FC = () => {
     { id: "products", labelEn: "Products", labelSw: "Bidhaa" },
   ];
 
+  const activeIndex = steps.findIndex((s) => s.id === activeStep);
+
   // -------- HANDLERS --------
 
   const handleChange = (
@@ -204,9 +205,7 @@ const SellerProfilePage: React.FC = () => {
     if (!file) {
       setLogoFile(null);
       // fallback: tumia kile kimetoka backend
-      setLogoPreview(
-        sellerSummary?.logo_url || sellerSummary?.logo || null,
-      );
+      setLogoPreview(sellerSummary?.logo_url || sellerSummary?.logo || null);
       return;
     }
     setLogoFile(file);
@@ -221,9 +220,7 @@ const SellerProfilePage: React.FC = () => {
     if (!file) {
       setShopImageFile(null);
       setShopImagePreview(
-        sellerSummary?.shop_image_url ||
-          sellerSummary?.shop_image ||
-          null,
+        sellerSummary?.shop_image_url || sellerSummary?.shop_image || null,
       );
       return;
     }
@@ -232,31 +229,28 @@ const SellerProfilePage: React.FC = () => {
     setShopImagePreview(objectUrl);
   };
 
-  const loadMyProducts = async (sellerPk: number) => {
+  /**
+   * Products za muuzaji aliye login
+   * - Inatumia /api/products/mine/
+   * - Ina-handle response iwe ARRAY au paginated (results[])
+   */
+  const loadMyProducts = async () => {
     setLoadingProducts(true);
     setProductsError(null);
     try {
-      const params = new URLSearchParams();
-      params.set("seller_id", String(sellerPk));
-      params.set("page", "1");
-      params.set("page_size", "100");
-
-      const res = await apiClient.get<PaginatedProductList>(
-        `/api/products/?${params.toString()}`,
+      const res = await apiClient.get<PaginatedProductList | MyProduct[]>(
+        "/api/products/mine/",
       );
 
-      const all = res.data.results || [];
+      const raw = res.data;
+      const list: MyProduct[] = Array.isArray(raw)
+        ? raw
+        : raw.results || [];
 
-      // 🔐 MUHIMU: hakikisha muuzaji anaona BIDHAA ZAKE TU
-      const mineOnly = all.filter(
-        (p) =>
-          p.seller_id === sellerPk || (p.seller && p.seller.id === sellerPk),
-      );
-
-      setMyProducts(mineOnly);
+      setMyProducts(list);
       setCompleted((prev) => ({
         ...prev,
-        products: mineOnly.length > 0,
+        products: list.length > 0,
       }));
     } catch (err) {
       console.error(err);
@@ -312,7 +306,7 @@ const SellerProfilePage: React.FC = () => {
         location: !!mine.location,
       }));
 
-      void loadMyProducts(mine.id);
+      void loadMyProducts();
     } catch (err) {
       console.error(err);
 
@@ -573,7 +567,7 @@ const SellerProfilePage: React.FC = () => {
 
       if (!sellerId) {
         // kama ilikuwa creation mpya, load bidhaa baada ya kuwa na sellerId
-        void loadMyProducts(finalSeller.id);
+        void loadMyProducts();
       }
 
       const msg = isSw
@@ -629,7 +623,7 @@ const SellerProfilePage: React.FC = () => {
         <div className="mb-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="relative">
-              <div className="w-11 h-11 rounded-2xl bg-slate-900 text-white flex items-center justify-center text-xs font-semibold overflow-hidden">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-slate-900 text-white flex items-center justify-center text-sm font-semibold overflow-hidden">
                 {logoPreview ? (
                   <img
                     src={logoPreview}
@@ -730,40 +724,54 @@ const SellerProfilePage: React.FC = () => {
         {!loading && (
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 sm:p-5 md:p-7 lg:p-8">
             {/* PROGRESS STEPS */}
-            <div className="flex items-center justify-between gap-3 mb-5 text-[11px] md:text-xs">
-              {steps.map((step, index) => {
-                const isActive = activeStep === step.id;
-                const isDone = stepStatus(step.id);
-                return (
-                  <button
-                    key={step.id}
-                    type="button"
-                    onClick={() => setActiveStep(step.id)}
-                    className="flex-1 flex flex-col items-center gap-1 group"
-                  >
-                    <div
-                      className={`w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center border text-[11px] ${
-                        isActive
-                          ? "bg-orange-500 text-white border-orange-500 shadow-sm"
-                          : isDone
-                          ? "bg-emerald-500 text-white border-emerald-500"
-                          : "bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-300 border-slate-300 dark:border-slate-600"
-                      }`}
+            <div className="mb-5">
+              <div className="flex items-center justify-between gap-2 mb-2 text-[11px] md:text-xs">
+                <span className="text-slate-500 dark:text-slate-400">
+                  {isSw
+                    ? `Hatua ${activeIndex + 1} ya ${steps.length}`
+                    : `Step ${activeIndex + 1} of ${steps.length}`}
+                </span>
+                <span className="hidden sm:inline text-slate-400 dark:text-slate-500">
+                  {isSw
+                    ? "Bofya namba au jina la hatua kubadilisha sehemu ya kujaza."
+                    : "Tap a step number or label to switch between sections."}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-3 text-[11px] md:text-xs">
+                {steps.map((step, index) => {
+                  const isActive = activeStep === step.id;
+                  const isDone = stepStatus(step.id);
+                  return (
+                    <button
+                      key={step.id}
+                      type="button"
+                      onClick={() => setActiveStep(step.id)}
+                      className="flex-1 flex flex-col items-center gap-1 group"
                     >
-                      {isDone && !isActive ? "✓" : index + 1}
-                    </div>
-                    <span
-                      className={`${
-                        isActive
-                          ? "text-orange-600 dark:text-orange-400 font-medium"
-                          : "text-slate-500 dark:text-slate-400"
-                      }`}
-                    >
-                      {isSw ? step.labelSw : step.labelEn}
-                    </span>
-                  </button>
-                );
-              })}
+                      <div
+                        className={`w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center border text-[11px] ${
+                          isActive
+                            ? "bg-orange-500 text-white border-orange-500 shadow-sm"
+                            : isDone
+                            ? "bg-emerald-500 text-white border-emerald-500"
+                            : "bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-300 border-slate-300 dark:border-slate-600"
+                        }`}
+                      >
+                        {isDone && !isActive ? "✓" : index + 1}
+                      </div>
+                      <span
+                        className={`${
+                          isActive
+                            ? "text-orange-600 dark:text-orange-400 font-medium"
+                            : "text-slate-500 dark:text-slate-400"
+                        }`}
+                      >
+                        {isSw ? step.labelSw : step.labelEn}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* FORM STEPS */}
@@ -856,7 +864,7 @@ const SellerProfilePage: React.FC = () => {
                             : "Company / brand logo"}
                         </label>
                         <div className="flex items-center gap-3">
-                          <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden text-[10px] text-slate-500 dark:text-slate-300">
+                          <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden text-[10px] text-slate-500 dark:text-slate-300">
                             {logoPreview ? (
                               <img
                                 src={logoPreview}
@@ -894,7 +902,7 @@ const SellerProfilePage: React.FC = () => {
                             : "Shop front photo (facade)"}
                         </label>
                         <div className="flex items-center gap-3">
-                          <div className="w-20 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden text-[10px] text-slate-500 dark:text-slate-300">
+                          <div className="w-full max-w-[220px] aspect-4/3 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden text-[10px] text-slate-500 dark:text-slate-300">
                             {shopImagePreview ? (
                               <img
                                 src={shopImagePreview}
@@ -938,20 +946,11 @@ const SellerProfilePage: React.FC = () => {
                       <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-50">
                         {isSw ? "Location ya biashara" : "Business location"}
                       </h3>
-                      <button
-                        type="button"
-                        onClick={handleUseMyLocation}
-                        disabled={geoLoading}
-                        className="px-3 py-1.5 rounded-full border border-orange-500 text-[11px] font-medium text-orange-600 bg-white dark:bg-slate-900 hover:bg-orange-50 dark:hover:bg-orange-500/10 disabled:opacity-60"
-                      >
-                        {geoLoading
-                          ? isSw
-                            ? "Inatafuta location..."
-                            : "Detecting..."
-                          : isSw
-                          ? "Tumia location ya sasa"
-                          : "Use my current location"}
-                      </button>
+                      <p className="text-[10px] md:text-[11px] text-slate-500 dark:text-slate-400">
+                        {isSw
+                          ? "Jaza anuani ya duka, kisha tumia kitufe kwenye ramani kupakia latitude & longitude ya sasa."
+                          : "Fill in your shop address, then use the map button to set your current latitude & longitude."}
+                      </p>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1045,7 +1044,24 @@ const SellerProfilePage: React.FC = () => {
                     </div>
 
                     <div className="mt-3">
-                      <GoogleMapPreview center={mapCenter} height="260px" />
+                      <div className="relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700">
+                        <GoogleMapPreview center={mapCenter} height="260px" />
+                        <button
+                          type="button"
+                          onClick={handleUseMyLocation}
+                          disabled={geoLoading}
+                          className="absolute top-3 right-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/90 dark:bg-slate-900/90 border border-orange-500 text-[11px] font-medium text-orange-600 dark:text-orange-300 shadow-sm hover:bg-white dark:hover:bg-slate-900 disabled:opacity-60"
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          {geoLoading
+                            ? isSw
+                              ? "Inatafuta location..."
+                              : "Detecting..."
+                            : isSw
+                            ? "Tumia location ya sasa"
+                            : "Use my current location"}
+                        </button>
+                      </div>
                       <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
                         {isSw
                           ? "Ramani inaonyesha location kulingana na latitude & longitude ulizoweka."
@@ -1162,17 +1178,19 @@ const SellerProfilePage: React.FC = () => {
                           key={p.id}
                           className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden flex flex-col"
                         >
-                          {img ? (
-                            <img
-                              src={img}
-                              alt={p.name}
-                              className="w-full h-32 object-cover"
-                            />
-                          ) : (
-                            <div className="w-full h-32 bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 dark:text-slate-500 text-[11px]">
-                              {isSw ? "Hakuna picha" : "No image"}
-                            </div>
-                          )}
+                          <div className="w-full aspect-4/3 bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
+                            {img ? (
+                              <img
+                                src={img}
+                                alt={p.name}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <span className="text-slate-400 dark:text-slate-500 text-[11px]">
+                                {isSw ? "Hakuna picha" : "No image"}
+                              </span>
+                            )}
+                          </div>
                           <div className="p-3 flex flex-col gap-1 flex-1">
                             <h4 className="text-xs font-semibold text-slate-900 dark:text-slate-50 line-clamp-2">
                               {p.name}

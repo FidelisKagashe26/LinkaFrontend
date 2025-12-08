@@ -5,7 +5,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import ProductsPage from "./pages/ProductsPage/ProductsPage";
-import SellerProfilePage from "./pages/SellerProfilePage";
+import SellerProfilePage from "./pages/SellerProfilePage/SellerProfilePage";
 import NearbyProductsPage from "./pages/NearbyProductsPage/NearbyProductsPage";
 import ProductCreatePage from "./pages/ProductCreatePage";
 import ProductDetailPage from "./pages/ProductDetailPage";
@@ -17,7 +17,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import AccountProfilePage from "./pages/AccountProfilePage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
 import NotificationsPage from "./pages/NotificationsPage";
-import SellersPage from "./pages/SellersPage";
+import SellersPage from "./pages/SellersPage/SellersPage";
 import ChatPage from "./pages/ChatPage";
 import OrderDetailPage from "./pages/OrderDetailPage";
 
