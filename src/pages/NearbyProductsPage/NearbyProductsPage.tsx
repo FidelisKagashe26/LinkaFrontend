@@ -6,7 +6,7 @@ import axios from "axios";
 import MainHeader from "../../components/MainHeader";
 import MainFooter from "../../components/MainFooter";
 import { useLanguage } from "../../contexts/LanguageContext";
-import { getNearbyProductsPageTexts } from "./NearByProductsPageTexts";
+import { getNearbyProductsPageTexts } from "./NearbyProductsPageTexts";
 
 interface SellerLite {
   id?: number;
