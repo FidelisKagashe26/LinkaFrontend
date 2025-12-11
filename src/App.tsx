@@ -6,7 +6,7 @@ import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import ProductsPage from "./pages/ProductsPage/ProductsPage";
 import SellerProfilePage from "./pages/SellerProfilePage/SellerProfilePage";
-import NearbyProductsPage from "./pages/NearbyProductsPage/NearbyProductsPage";
+import NearbyProductsPage from "./pages/NearbyProductsPage/NearByProductsPage";
 import ProductCreatePage from "./pages/ProductCreatePage/ProductCreatePage";
 import ProductDetailPage from "./pages/ProductDetailPage/ProductDetailPage";
 import ProductEditPage from "./pages/ProductEditPage/ProductEditPage";
