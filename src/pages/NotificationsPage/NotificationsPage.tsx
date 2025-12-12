@@ -1,5 +1,10 @@
 // src/pages/NotificationsPage/NotificationsPage.tsx
-import React, { useCallback, useEffect, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import apiClient from "../../lib/apiClient";
 import MainHeader from "../../components/MainHeader";
@@ -104,7 +109,6 @@ interface SellerProfileSummary {
   id: number;
   business_name: string;
   logo_url: string | null;
-  // kwa Order.seller tunaweza pia kurudishiwa user kamili
   user?: UserFull;
 }
 
@@ -130,7 +134,18 @@ interface AuthMeResponse {
   avatar_url: string | null;
 }
 
+// ====== GROUP TYPES ======
+
+interface ChatNotificationGroup {
+  conversationId: number | null;
+  notifications: Notification[];
+  latest: Notification;
+  unreadCount: number;
+}
+
 // ================== HELPERS ==================
+
+const PAGE_SIZE = 20;
 
 const formatDate = (iso: string) => {
   const d = new Date(iso);
@@ -351,6 +366,8 @@ const NotificationsPage: React.FC = () => {
 
   const [currentUser, setCurrentUser] = useState<AuthMeResponse | null>(null);
 
+  const [page, setPage] = useState(1);
+
   // ========== GET CURRENT USER (kujua id + is_seller) ==========
 
   useEffect(() => {
@@ -383,6 +400,7 @@ const NotificationsPage: React.FC = () => {
       );
       setItems(res.data.results || []);
       setError(null);
+      setPage(1); // reset pagination kila tukireload
     } catch (err) {
       console.error(err);
       setError(t.errorLoadNotifications);
@@ -397,11 +415,78 @@ const NotificationsPage: React.FC = () => {
 
   const unreadCount = items.filter((n) => !n.is_read).length;
 
-  const chatNotifications = items.filter((n) => isChatType(n.notif_type));
-  const orderNotifications = items.filter((n) => isOrderType(n.notif_type));
-  const otherNotifications = items.filter(
+  // Visible slice kwa ajili ya pagination (Load more)
+  const visibleItems = useMemo(
+    () => items.slice(0, page * PAGE_SIZE),
+    [items, page],
+  );
+
+  // ===== Filter by type (kwenye visible items tu) =====
+  const chatNotifications = visibleItems.filter((n) =>
+    isChatType(n.notif_type),
+  );
+  const orderNotifications = visibleItems.filter((n) =>
+    isOrderType(n.notif_type),
+  );
+  const otherNotifications = visibleItems.filter(
     (n) => !isChatType(n.notif_type) && !isOrderType(n.notif_type),
   );
+
+  // ===== Grouped chat notifications per conversation =====
+  const chatGroups = useMemo<ChatNotificationGroup[]>(() => {
+    if (!chatNotifications.length) return [];
+
+    const map = new Map<
+      string,
+      { conversationId: number | null; items: Notification[] }
+    >();
+
+    chatNotifications.forEach((n) => {
+      const data = (n.data || {}) as NotificationData;
+      const convId =
+        typeof data.conversation_id === "number" ? data.conversation_id : null;
+
+      const key =
+        convId !== null
+          ? `conv-${convId}`
+          : data.seller_id || data.product_id
+          ? `fallback-${data.seller_id ?? "s"}-${data.product_id ?? "p"}`
+          : `notif-${n.id}`;
+
+      const existing = map.get(key);
+      if (existing) {
+        existing.items.push(n);
+      } else {
+        map.set(key, { conversationId: convId, items: [n] });
+      }
+    });
+
+    const groups: ChatNotificationGroup[] = [];
+
+    map.forEach((value) => {
+      const sorted = [...value.items].sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      );
+      const latest = sorted[0];
+      const unreadCount = sorted.filter((n) => !n.is_read).length;
+
+      groups.push({
+        conversationId: value.conversationId,
+        notifications: sorted,
+        latest,
+        unreadCount,
+      });
+    });
+
+    groups.sort(
+      (a, b) =>
+        new Date(b.latest.created_at).getTime() -
+        new Date(a.latest.created_at).getTime(),
+    );
+
+    return groups;
+  }, [chatNotifications]);
 
   const markAllRead = async () => {
     try {
@@ -464,6 +549,61 @@ const NotificationsPage: React.FC = () => {
     }
   };
 
+  // Fungua group ya chat: soma (read) zote za conversation hiyo, kisha navigate
+  const handleOpenChatGroup = (group: ChatNotificationGroup) => {
+    const rep = group.latest;
+    const data = (rep.data || {}) as NotificationData;
+    const convId =
+      typeof data.conversation_id === "number" ? data.conversation_id : null;
+
+    setItems((prev) => {
+      const idsToMark: number[] = [];
+
+      const next = prev.map((n) => {
+        if (!isChatType(n.notif_type)) return n;
+
+        const d = (n.data || {}) as NotificationData;
+
+        const sameConversation =
+          convId !== null
+            ? d.conversation_id === convId
+            : group.notifications.some((gn) => gn.id === n.id);
+
+        if (sameConversation && !n.is_read) {
+          idsToMark.push(n.id);
+          return {
+            ...n,
+            is_read: true,
+          };
+        }
+
+        return n;
+      });
+
+      if (idsToMark.length) {
+        idsToMark.forEach((id) => {
+          void apiClient
+            .patch(`/api/notifications/${id}/`, { is_read: true })
+            .catch((err) => {
+              console.error(err);
+              setError((prevErr) => prevErr ?? t.errorMarkSingleRead);
+            });
+        });
+      }
+
+      return next;
+    });
+
+    // Navigate kama ilivyo kwa notification moja
+    if (convId) {
+      navigate(`/chat?conversation=${convId}`);
+    } else if (data.product_id && data.seller_id) {
+      navigate(`/chat?product=${data.product_id}&seller=${data.seller_id}`);
+    } else {
+      navigate("/chat");
+    }
+  };
+
   const renderTypeBadge = (n: Notification) => {
     const base =
       "inline-flex items-center px-2 py-[3px] rounded-full text-[10px] font-medium";
@@ -512,7 +652,7 @@ const NotificationsPage: React.FC = () => {
   // ================== META LOADER (logos & avatars) ==================
 
   useEffect(() => {
-    if (!items.length) {
+    if (!visibleItems.length) {
       setMetaMap({});
       return;
     }
@@ -526,7 +666,7 @@ const NotificationsPage: React.FC = () => {
     const orderIds = new Set<number>();
     const productIds = new Set<number>();
 
-    items.forEach((n) => {
+    visibleItems.forEach((n) => {
       const data = (n.data || {}) as NotificationData;
       if (isChatType(n.notif_type) && data.conversation_id) {
         chatConvIds.add(data.conversation_id);
@@ -539,7 +679,11 @@ const NotificationsPage: React.FC = () => {
       }
     });
 
-    if (chatConvIds.size === 0 && orderIds.size === 0 && productIds.size === 0) {
+    if (
+      chatConvIds.size === 0 &&
+      orderIds.size === 0 &&
+      productIds.size === 0
+    ) {
       setMetaMap({});
       return;
     }
@@ -609,7 +753,7 @@ const NotificationsPage: React.FC = () => {
         const userId = currentUser.id ?? null;
         const userIsSeller = !!currentUser.is_seller;
 
-        items.forEach((n) => {
+        visibleItems.forEach((n) => {
           newMeta[n.id] = buildNotificationMeta(
             n,
             convMap,
@@ -631,7 +775,12 @@ const NotificationsPage: React.FC = () => {
     };
 
     void fetchMeta();
-  }, [items, currentUser, t.newChatMessageTitle, t.genericNotificationTitle]);
+  }, [
+    visibleItems,
+    currentUser,
+    t.newChatMessageTitle,
+    t.genericNotificationTitle,
+  ]);
 
   const getAvatarForNotification = (n: Notification): AvatarInfo => {
     const meta = metaMap[n.id];
@@ -658,7 +807,7 @@ const NotificationsPage: React.FC = () => {
     };
   };
 
-  // ================== RENDER LIST ==================
+  // ================== RENDER LISTS ==================
 
   const renderNotificationList = (list: Notification[]) => {
     if (list.length === 0) {
@@ -746,7 +895,111 @@ const NotificationsPage: React.FC = () => {
                         e.stopPropagation();
                         handleOpenNotification(n);
                       }}
-                      className="px-3 py-1.5 rounded-full bg-slate-900 text-white text-[11px] font-medium hover:bg-black"
+                      className="px-3 py-1.5 rounded-full bg-orange-500 text-white text-[11px] font-medium hover:bg-orange-600"
+                    >
+                      {getOpenLabel(n)}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  };
+
+  // Chat notification groups (per conversation)
+  const renderChatGroupList = (groups: ChatNotificationGroup[]) => {
+    if (groups.length === 0) {
+      return (
+        <div className="px-4 py-3 text-[11px] text-slate-500 dark:text-slate-400">
+          {t.emptySectionLabel}
+        </div>
+      );
+    }
+
+    return (
+      <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+        {groups.map((group) => {
+          const n = group.latest;
+          const isUnread = group.unreadCount > 0;
+          const canOpen = canOpenNotification(n);
+          const avatar = getAvatarForNotification(n);
+
+          return (
+            <li
+              key={n.id}
+              onClick={() => canOpen && handleOpenChatGroup(group)}
+              className={`px-4 py-3 flex gap-3 transition-colors ${
+                isUnread
+                  ? "bg-orange-50/60 dark:bg-orange-500/5 hover:bg-orange-100/70 dark:hover:bg-orange-500/10"
+                  : "bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800"
+              } ${canOpen ? "cursor-pointer" : "cursor-default"}`}
+            >
+              {/* AVATAR */}
+              <div className="mt-0.5">
+                <div className="relative w-9 h-9 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[11px] font-semibold text-slate-700 dark:text-slate-100">
+                  {avatar.imageUrl ? (
+                    <img
+                      src={avatar.imageUrl}
+                      alt={avatar.alt}
+                      className={`w-full h-full object-cover ${
+                        metaLoading ? "opacity-70" : ""
+                      }`}
+                    />
+                  ) : (
+                    <span>{avatar.letter}</span>
+                  )}
+
+                  <span
+                    className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-white dark:border-slate-900 ${
+                      isUnread ? "bg-orange-500" : "bg-slate-300"
+                    }`}
+                  />
+                </div>
+              </div>
+
+              {/* CONTENT */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
+                    {n.title || t.newChatMessageTitle}
+                  </div>
+                  <div className="text-[11px] text-slate-400 dark:text-slate-500 whitespace-nowrap">
+                    {n.created_at ? formatDate(n.created_at) : ""}
+                  </div>
+                </div>
+
+                {n.body && (
+                  <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2">
+                    {n.body}
+                  </p>
+                )}
+
+                <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    {renderTypeBadge(n)}
+                    {group.unreadCount > 0 && (
+                      <span className="inline-flex items-center px-2 py-2px rounded-full text-[10px] font-semibold bg-orange-500 text-white">
+                        {group.unreadCount}
+                      </span>
+                    )}
+                    {metaLoading && (
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                        ...
+                      </span>
+                    )}
+                  </div>
+
+                  {canOpen && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenChatGroup(group);
+                      }}
+                      className="px-3 py-1.5 rounded-full bg-orange-500 text-white text-[11px] font-medium hover:bg-orange-600"
                     >
                       {getOpenLabel(n)}
                     </button>
@@ -788,7 +1041,11 @@ const NotificationsPage: React.FC = () => {
                 type="button"
                 onClick={markAllRead}
                 disabled={marking || unreadCount === 0}
-                className="px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
+                className={`px-3 py-1.5 rounded-full text-xs font-medium disabled:opacity-50 ${
+                  unreadCount > 0
+                    ? "border border-orange-500/70 text-orange-700 dark:text-orange-300 hover:bg-orange-50 dark:hover:bg-orange-500/10"
+                    : "border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 cursor-default"
+                }`}
               >
                 {marking
                   ? t.markAllCleaning
@@ -807,7 +1064,7 @@ const NotificationsPage: React.FC = () => {
                 onClick={() => setActiveTab("all")}
                 className={`px-3 py-1.5 rounded-full text-[11px] font-medium transition ${
                   activeTab === "all"
-                    ? "bg-slate-900 text-white shadow-sm"
+                    ? "bg-orange-500 text-white shadow-sm"
                     : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
                 }`}
               >
@@ -818,7 +1075,7 @@ const NotificationsPage: React.FC = () => {
                 onClick={() => setActiveTab("chat")}
                 className={`px-3 py-1.5 rounded-full text-[11px] font-medium transition ${
                   activeTab === "chat"
-                    ? "bg-slate-900 text-white shadow-sm"
+                    ? "bg-orange-500 text-white shadow-sm"
                     : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
                 }`}
               >
@@ -829,7 +1086,7 @@ const NotificationsPage: React.FC = () => {
                 onClick={() => setActiveTab("orders")}
                 className={`px-3 py-1.5 rounded-full text-[11px] font-medium transition ${
                   activeTab === "orders"
-                    ? "bg-slate-900 text-white shadow-sm"
+                    ? "bg-orange-500 text-white shadow-sm"
                     : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
                 }`}
               >
@@ -861,52 +1118,67 @@ const NotificationsPage: React.FC = () => {
                 {t.emptyAllLabel}
               </div>
             ) : (
-              <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                {/* CHAT SECTION */}
-                {showChatSection && (
-                  <section className="px-0 py-0">
-                    <div className="px-4 pt-3 pb-2">
-                      <h2 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
-                        {t.chatSectionTitle}
-                      </h2>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        {t.chatSectionSubtitle}
-                      </p>
-                    </div>
-                    {renderNotificationList(chatNotifications)}
-                  </section>
-                )}
+              <>
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {/* CHAT SECTION (grouped per conversation) */}
+                  {showChatSection && (
+                    <section className="px-0 py-0">
+                      <div className="px-4 pt-3 pb-2">
+                        <h2 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                          {t.chatSectionTitle}
+                        </h2>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          {t.chatSectionSubtitle}
+                        </p>
+                      </div>
+                      {renderChatGroupList(chatGroups)}
+                    </section>
+                  )}
 
-                {/* ORDER SECTION */}
-                {showOrdersSection && (
-                  <section className="px-0 py-0">
-                    <div className="px-4 pt-3 pb-2">
-                      <h2 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
-                        {t.ordersSectionTitle}
-                      </h2>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        {t.ordersSectionSubtitle}
-                      </p>
-                    </div>
-                    {renderNotificationList(orderNotifications)}
-                  </section>
-                )}
+                  {/* ORDER SECTION */}
+                  {showOrdersSection && (
+                    <section className="px-0 py-0">
+                      <div className="px-4 pt-3 pb-2">
+                        <h2 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                          {t.ordersSectionTitle}
+                        </h2>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          {t.ordersSectionSubtitle}
+                        </p>
+                      </div>
+                      {renderNotificationList(orderNotifications)}
+                    </section>
+                  )}
 
-                {/* OTHER SECTION */}
-                {showOtherSection && (
-                  <section className="px-0 py-0">
-                    <div className="px-4 pt-3 pb-2">
-                      <h2 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
-                        {t.otherSectionTitle}
-                      </h2>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        {t.otherSectionSubtitle}
-                      </p>
-                    </div>
-                    {renderNotificationList(otherNotifications)}
-                  </section>
+                  {/* OTHER SECTION */}
+                  {showOtherSection && (
+                    <section className="px-0 py-0">
+                      <div className="px-4 pt-3 pb-2">
+                        <h2 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                          {t.otherSectionTitle}
+                        </h2>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          {t.otherSectionSubtitle}
+                        </p>
+                      </div>
+                      {renderNotificationList(otherNotifications)}
+                    </section>
+                  )}
+                </div>
+
+                {/* PAGINATION: LOAD MORE */}
+                {visibleItems.length < items.length && (
+                  <div className="border-t border-slate-100 dark:border-slate-800 px-4 py-3 flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => setPage((prev) => prev + 1)}
+                      className="px-4 py-1.5 rounded-full bg-orange-500 text-white text-[11px] font-medium hover:bg-orange-600"
+                    >
+                      Load more
+                    </button>
+                  </div>
                 )}
-              </div>
+              </>
             )}
           </div>
         </div>
