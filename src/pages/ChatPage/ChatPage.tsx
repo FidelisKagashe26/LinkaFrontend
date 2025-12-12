@@ -1,5 +1,4 @@
-// src/pages/ChatPage.tsx
-
+// src/pages/ChatPage.tsx (au src/pages/ChatPage/ChatPage.tsx)
 import React, {
   useCallback,
   useEffect,
@@ -8,11 +7,13 @@ import React, {
 } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import axios from "axios";
-import apiClient from "../lib/apiClient";
-import { getAccessToken } from "../lib/authStorage";
-import { useAuth } from "../contexts/AuthContext";
-import MainHeader from "../components/MainHeader";
-import MainFooter from "../components/MainFooter";
+import apiClient from "../../lib/apiClient";
+import { getAccessToken } from "../../lib/authStorage";
+import { useAuth } from "../../contexts/AuthContext";
+import { useLanguage } from "../../contexts/LanguageContext";
+import { getChatPageTexts } from "./chatPageTexts";
+import MainHeader from "../../components/MainHeader";
+import MainFooter from "../../components/MainFooter";
 
 interface UserMini {
   id: number;
@@ -200,7 +201,6 @@ const buildWebSocketUrl = (conversationPk: number): string => {
 
   let token: string | null = null;
 
-  // 1) Jaribu kuchukua moja kwa moja kutoka Authorization header ya apiClient
   const maybeHeaders = apiClient.defaults.headers?.common;
   if (maybeHeaders) {
     const headersRecord = maybeHeaders as Record<string, unknown>;
@@ -216,7 +216,6 @@ const buildWebSocketUrl = (conversationPk: number): string => {
     }
   }
 
-  // 2) Fallback: tumia getAccessToken (storage)
   if (!token) {
     token = getAccessToken();
   }
@@ -238,12 +237,15 @@ const buildWebSocketUrl = (conversationPk: number): string => {
 
 const ChatPage: React.FC = () => {
   const { user } = useAuth();
+  const { language } = useLanguage();
+  const t = getChatPageTexts(language);
+
   const [searchParams] = useSearchParams();
 
   const productIdParam = searchParams.get("product");
   const sellerIdParam = searchParams.get("seller");
   const conversationParam = searchParams.get("conversation");
-  const orderIdParam = searchParams.get("order"); // reserve, future use
+  const orderIdParam = searchParams.get("order");
 
   const conversationFromUrl =
     conversationParam !== null && !Number.isNaN(Number(conversationParam))
@@ -266,7 +268,6 @@ const ChatPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [newMessage, setNewMessage] = useState<string>("");
 
-  // Fallback context kabla hatujapata ConversationDetail
   const [fallbackProduct, setFallbackProduct] = useState<ProductMini | null>(
     null,
   );
@@ -279,13 +280,30 @@ const ChatPage: React.FC = () => {
   const effectiveSeller =
     conversationDetail?.seller || fallbackSeller || null;
 
-  // WebSocket realtime state
+  // Product context kutoka product list (attachment ya ujumbe wa kwanza)
+  const [productContext, setProductContext] = useState<ProductMini | null>(
+    null,
+  );
+  const [showProductPinned, setShowProductPinned] = useState(false);
+  const [productContextMessageId, setProductContextMessageId] = useState<
+    number | null
+  >(null);
+
+  const pinnedProduct =
+    (showProductPinned && productContext) ||
+    (!productContext && effectiveProduct) ||
+    null;
+
+  const pinnedProductImage = getProductMainImage(pinnedProduct);
+
+  const modalProduct = productContext || effectiveProduct;
+  const modalProductImage = getProductMainImage(modalProduct);
+
   const wsRef = useRef<WebSocket | null>(null);
   const typingTimeoutRef = useRef<number | undefined>(undefined);
   const [wsConnected, setWsConnected] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
 
-  // Auto scroll
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollToBottom = useCallback(() => {
     if (messagesEndRef.current) {
@@ -296,8 +314,72 @@ const ChatPage: React.FC = () => {
     }
   }, []);
 
-  const shopName = effectiveSeller?.business_name ?? "Seller shop";
-  const productImage = getProductMainImage(effectiveProduct);
+  const shopName = effectiveSeller?.business_name ?? t.defaultShopName;
+
+  // --------- Tambua kama current user ni buyer au seller kwenye hii conversation ---------
+
+  const conversationRole: "buyer" | "seller" | "unknown" = (() => {
+    if (!user) return "unknown";
+    if (conversationDetail) {
+      const currentId = user.id;
+      if (conversationDetail.seller?.user?.id === currentId) {
+        return "seller";
+      }
+      if (conversationDetail.buyer?.id === currentId) {
+        return "buyer";
+      }
+    }
+
+    // fallback → tumia flag yoyote iliyopo kwenye user wa AuthContext
+    const asAny = user as unknown as { is_seller?: boolean };
+    if (typeof asAny.is_seller === "boolean") {
+      return asAny.is_seller ? "seller" : "buyer";
+    }
+
+    return "unknown";
+  })();
+
+  const isSellerView = conversationRole === "seller";
+
+  // Header avatar information (mtu wa pili wa mazungumzo)
+  const {
+    headerAvatarUrl,
+    headerLetter,
+    headerTitle,
+    headerSubtitle,
+  } = (() => {
+    // default: tuna assume user ni buyer, anaongea na duka
+    let avatarUrl: string | null =
+      (effectiveSeller && effectiveSeller.logo_url) || null;
+    let title = shopName;
+    let letter = (shopName.charAt(0) || "S").toUpperCase();
+    let subtitle =
+      !isSellerView && effectiveSeller?.is_verified
+        ? t.sellerVerifiedLabel
+        : "";
+
+    // kama user ni seller → aone sura ya buyer
+    if (conversationDetail && isSellerView) {
+      const buyer = conversationDetail.buyer;
+      const fullName =
+        `${buyer.first_name || ""} ${buyer.last_name || ""}`.trim() ||
+        buyer.username ||
+        buyer.email ||
+        t.otherUserLabel;
+
+      title = fullName;
+      letter = (fullName.charAt(0) || letter).toUpperCase();
+      avatarUrl = buyer.avatar_url ?? null;
+      subtitle = "";
+    }
+
+    return {
+      headerAvatarUrl: avatarUrl,
+      headerLetter: letter,
+      headerTitle: title,
+      headerSubtitle: subtitle,
+    };
+  })();
 
   const otherTyping = participantStates.some((ps) => {
     const participantId = getParticipantUserId(ps);
@@ -318,13 +400,13 @@ const ChatPage: React.FC = () => {
   };
 
   const getSenderLabel = (sender: UserMini): string => {
-    if (!user) return sender.username || sender.email || "Other";
-    if (sender.id === user.id) return "You";
+    if (!user) return sender.username || sender.email || t.otherUserLabel;
+    if (sender.id === user.id) return t.youLabel;
     if (sender.username) return sender.username;
     const full = `${sender.first_name || ""} ${sender.last_name || ""}`.trim();
     if (full) return full;
     if (sender.email) return sender.email;
-    return "Other";
+    return t.otherUserLabel;
   };
 
   const renderStatusTick = (status: MessageStatus, mine: boolean) => {
@@ -345,7 +427,6 @@ const ChatPage: React.FC = () => {
     return null;
   };
 
-  // ================== INITIAL CONVERSATION DETAIL (ONE-TIME REST) ==================
   const [initialDetailLoaded, setInitialDetailLoaded] = useState(false);
 
   const loadConversationDetail = useCallback(
@@ -361,7 +442,6 @@ const ChatPage: React.FC = () => {
         setMessages(data.messages || []);
         setParticipantStates(data.participant_states || []);
 
-        // mark all as seen (non-blocking)
         void apiClient
           .post(`/api/conversations/${conversationPk}/mark_seen/`, {})
           .catch((markError) => {
@@ -371,15 +451,14 @@ const ChatPage: React.FC = () => {
         setInitialDetailLoaded(true);
       } catch (err) {
         console.error(err);
-        setError("Imeshindikana kupakia messages. Jaribu tena baadae.");
+        setError(t.errorLoadMessages);
       } finally {
         setLoading(false);
       }
     },
-    [],
+    [t.errorLoadMessages],
   );
 
-  // ================== HANDLE WS EVENTS ==================
   const handleIncomingEvent = useCallback(
     (event: MessageEvent<string>) => {
       try {
@@ -389,7 +468,6 @@ const ChatPage: React.FC = () => {
 
         const type = parsed.type;
 
-        // ----- SINGLE MESSAGE (created/updated) -----
         if ("message" in parsed && parsed.message) {
           const incoming = parsed.message;
 
@@ -414,10 +492,10 @@ const ChatPage: React.FC = () => {
           if (user && incoming.sender.id !== user.id && conversationId) {
             void apiClient
               .post(`/api/conversations/${conversationId}/mark_seen/`, {})
-              .catch((err) => {
+              .catch((errMark) => {
                 console.error(
                   "Failed to mark seen via websocket event",
-                  err,
+                  errMark,
                 );
               });
           }
@@ -426,7 +504,6 @@ const ChatPage: React.FC = () => {
           return;
         }
 
-        // ----- TYPING STATE (conversation.typing) -----
         const looksLikeTypingEvent =
           typeof type === "string" &&
           type.toLowerCase().includes("typing") &&
@@ -472,7 +549,6 @@ const ChatPage: React.FC = () => {
           return;
         }
 
-        // ----- BULK SNAPSHOT -----
         if (type === "conversation.bulk_state") {
           const bulk = parsed as WsBulkEnvelope;
           if (bulk.messages) {
@@ -490,7 +566,7 @@ const ChatPage: React.FC = () => {
     [conversationId, scrollToBottom, user],
   );
 
-  // ================== BOOTSTRAP CONVERSATION (CREATE/REUSE) ==================
+  // ================== BOOTSTRAP ==================
   useEffect(() => {
     if (!user) return;
     if (hasBootstrapped) return;
@@ -500,24 +576,19 @@ const ChatPage: React.FC = () => {
         setError(null);
         setLoading(true);
 
-        // 1) Kama URL tayari ina conversation, tumia hiyo
         if (conversationFromUrl) {
           setConversationId(conversationFromUrl);
           setHasBootstrapped(true);
           return;
         }
 
-        // 2) Kama state tayari ina conversation, tumia hiyo
         if (conversationId) {
           setHasBootstrapped(true);
           return;
         }
 
-        // 3) Otherwise, jaribu ku-create kwa seller + product
         if (!sellerIdParam) {
-          setError(
-            "Haijabainika muuzaji wa hii chat. Tafadhali fungua chat kupitia product.",
-          );
+          setError(t.errorOpenChatNoSeller);
           setLoading(false);
           setHasBootstrapped(true);
           return;
@@ -534,7 +605,8 @@ const ChatPage: React.FC = () => {
           }
         }
 
-        void orderIdParam; // reserved for future use
+        // Ili tusipate warning ya "orderIdParam is declared but never used"
+        void orderIdParam;
 
         const res = await apiClient.post<Conversation>(
           "/api/conversations/",
@@ -544,8 +616,7 @@ const ChatPage: React.FC = () => {
       } catch (errorInit: unknown) {
         console.error(errorInit);
 
-        let message =
-          "Imeshindikana kufungua mazungumzo na muuzaji. Jaribu tena baadae.";
+        let message = t.errorOpenChatGeneric;
 
         if (axios.isAxiosError(errorInit)) {
           const specific = extractErrorMessage(errorInit.response?.data);
@@ -555,8 +626,7 @@ const ChatPage: React.FC = () => {
                 .toLowerCase()
                 .includes("you cannot start a conversation with yourself")
             ) {
-              message =
-                "Huwezi kuanza mazungumzo na akaunti yako mwenyewe. Jaribu kutumia akaunti ya mnunuaji tofauti.";
+              message = t.errorCannotChatWithSelf;
             } else {
               message = specific;
             }
@@ -579,9 +649,12 @@ const ChatPage: React.FC = () => {
     productIdParam,
     sellerIdParam,
     orderIdParam,
+    t.errorOpenChatGeneric,
+    t.errorOpenChatNoSeller,
+    t.errorCannotChatWithSelf,
   ]);
 
-  // ================== LOAD CONVERSATION DETAIL (ONE TIME) ==================
+  // ================== LOAD DETAIL ==================
   useEffect(() => {
     if (!user) return;
     if (!conversationId) return;
@@ -590,7 +663,7 @@ const ChatPage: React.FC = () => {
     void loadConversationDetail(conversationId);
   }, [user, conversationId, initialDetailLoaded, loadConversationDetail]);
 
-  // ================== FALLBACK CONTEXT (product / seller) ==================
+  // ================== FALLBACK CONTEXT ==================
   useEffect(() => {
     const loadFallbackContext = async () => {
       try {
@@ -623,7 +696,17 @@ const ChatPage: React.FC = () => {
     void loadFallbackContext();
   }, [conversationId, productIdParam, sellerIdParam]);
 
-  // ================== WEBSOCKET CONNECTION ==================
+  // Product context kutoka product param (ili iwe attachment ya message ya kwanza)
+  useEffect(() => {
+    if (!productIdParam) return;
+    if (!fallbackProduct) return;
+    if (productContext) return;
+
+    setProductContext(fallbackProduct);
+    setShowProductPinned(true);
+  }, [productIdParam, fallbackProduct, productContext]);
+
+  // ================== WEBSOCKET ==================
   useEffect(() => {
     if (!user) return;
     if (!conversationId) return;
@@ -634,7 +717,7 @@ const ChatPage: React.FC = () => {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      console.log("[WS] connected");
+      console.log("[WS] connected]");
       setWsConnected(true);
       try {
         ws.send(
@@ -681,7 +764,7 @@ const ChatPage: React.FC = () => {
     }
   }, [messages.length, scrollToBottom]);
 
-  // ================== TYPING (WS with HTTP fallback) ==================
+  // ================== TYPING ==================
   const sendTyping = useCallback(
     (typing: boolean) => {
       if (!conversationId) return;
@@ -751,9 +834,7 @@ const ChatPage: React.FC = () => {
     if (!textToSend) return;
 
     if (!conversationId) {
-      setError(
-        "Hatukuweza kutambua mazungumzo. Tafadhali fungua chat tena kupitia product.",
-      );
+      setError(t.errorNoConversationForSend);
       return;
     }
 
@@ -774,11 +855,19 @@ const ChatPage: React.FC = () => {
         if (exists) return prev;
         return [...prev, res.data];
       });
+
+      // Message ya kwanza kubeba product attachment
+      if (
+        productContext &&
+        showProductPinned &&
+        productContextMessageId === null
+      ) {
+        setProductContextMessageId(res.data.id);
+        setShowProductPinned(false);
+      }
     } catch (errorSend) {
       console.error(errorSend);
-      setError(
-        "Imeshindikana kutuma ujumbe. Hakikisha uko online na jaribu tena.",
-      );
+      setError(t.errorSendMessage);
     } finally {
       setSending(false);
     }
@@ -790,7 +879,7 @@ const ChatPage: React.FC = () => {
         <MainHeader />
         <main className="flex-1 flex items-center justify-center px-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 text-sm text-slate-600 dark:text-slate-300 max-w-sm text-center">
-            Tafadhali login kwanza ili kutumia chat.
+            {t.mustBeLoggedIn}
           </div>
         </main>
         <MainFooter />
@@ -806,16 +895,15 @@ const ChatPage: React.FC = () => {
         <header className="mb-1 flex items-center justify-between gap-2">
           <div>
             <h1 className="text-lg font-semibold text-slate-900 dark:text-white">
-              Chat with seller
+              {t.pageTitle}
             </h1>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Tuma ujumbe kwa muuzaji kujadiliana kuhusu product na details za
-              miamala kwa muda halisi (real-time).
+              {t.pageSubtitle}
             </p>
           </div>
 
           <div className="text-[10px] px-2 py-1 rounded-full border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/70">
-            WS:{" "}
+            {t.wsLabel}{" "}
             <span
               className={
                 wsConnected
@@ -823,34 +911,34 @@ const ChatPage: React.FC = () => {
                   : "text-red-500 font-semibold"
               }
             >
-              {wsConnected ? "connected" : "disconnected"}
+              {wsConnected ? t.wsConnected : t.wsDisconnected}
             </span>
           </div>
         </header>
 
         <section className="flex-1 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-          {/* SELLER HEADER */}
+          {/* CHAT HEADER (inaonyesha mtu wa pili) */}
           {effectiveSeller && (
             <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/80 dark:bg-slate-900/80">
               <div className="flex items-center gap-2">
-                {effectiveSeller.logo_url ? (
+                {headerAvatarUrl ? (
                   <img
-                    src={effectiveSeller.logo_url}
-                    alt={shopName}
+                    src={headerAvatarUrl}
+                    alt={headerTitle}
                     className="w-8 h-8 rounded-full object-cover border border-slate-200"
                   />
                 ) : (
                   <div className="w-8 h-8 rounded-full bg-slate-200 text-[11px] font-semibold flex items-center justify-center text-slate-700">
-                    {shopName.charAt(0).toUpperCase()}
+                    {headerLetter}
                   </div>
                 )}
                 <div className="flex flex-col">
                   <span className="text-xs font-semibold text-slate-900 dark:text-white">
-                    {shopName}
+                    {headerTitle}
                   </span>
-                  {effectiveSeller.is_verified && (
+                  {headerSubtitle && (
                     <span className="text-[10px] text-emerald-600 dark:text-emerald-300">
-                      ✔ Verified seller
+                      {headerSubtitle}
                     </span>
                   )}
                 </div>
@@ -858,10 +946,10 @@ const ChatPage: React.FC = () => {
               {conversationDetail && (
                 <div className="text-[10px] text-slate-400">
                   {otherTyping
-                    ? "Anaandika..."
+                    ? t.statusTyping
                     : wsConnected
-                    ? "Online"
-                    : "Recently online"}
+                    ? t.statusOnline
+                    : t.statusRecentlyOnline}
                 </div>
               )}
             </div>
@@ -871,13 +959,13 @@ const ChatPage: React.FC = () => {
           <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
             {loading ? (
               <div className="text-sm text-slate-500">
-                Inapakia messages...
+                {t.loadingMessages}
               </div>
             ) : error ? (
               <div className="text-sm text-red-600">{error}</div>
             ) : messages.length === 0 ? (
               <div className="text-sm text-slate-500">
-                Hakuna messages bado. Tuma ujumbe wa kwanza kuanza mazungumzo.
+                {t.noMessagesYet}
               </div>
             ) : (
               messages.map((msg) => {
@@ -885,13 +973,38 @@ const ChatPage: React.FC = () => {
                 const senderLabel = getSenderLabel(msg.sender);
                 const createdLabel = formatDateTimeShort(msg.created_at);
 
+                const showProductAttachment =
+                  mine &&
+                  productContext &&
+                  productContextMessageId !== null &&
+                  msg.id === productContextMessageId;
+
+                const messageProductImage = productContext
+                  ? getProductMainImage(productContext)
+                  : null;
+
                 return (
                   <div
                     key={msg.id}
-                    className={`flex ${
+                    className={`flex items-end gap-1 ${
                       mine ? "justify-end" : "justify-start"
                     }`}
                   >
+                    {/* Avatar ya upande wa pili, ina-follow picha ya header */}
+                    {!mine && (
+                      <div className="w-7 h-7 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-700 shrink-0 flex items-center justify-center text-[10px] font-semibold text-slate-700 dark:text-slate-100">
+                        {headerAvatarUrl ? (
+                          <img
+                            src={headerAvatarUrl}
+                            alt={headerTitle}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <span>{headerLetter}</span>
+                        )}
+                      </div>
+                    )}
+
                     <div
                       className={`max-w-[75%] rounded-2xl px-3 py-2 text-[11px] ${
                         mine
@@ -899,6 +1012,34 @@ const ChatPage: React.FC = () => {
                           : "bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-bl-sm"
                       }`}
                     >
+                      {showProductAttachment && productContext && (
+                        <div className="mb-1 rounded-xl border border-orange-100 dark:border-slate-700 bg-white/90 dark:bg-slate-900/60 p-2 flex items-center gap-2 text-[10px]">
+                          {messageProductImage ? (
+                            <img
+                              src={messageProductImage}
+                              alt={productContext.name}
+                              className="w-9 h-9 rounded-lg object-cover border border-slate-200 dark:border-slate-700"
+                            />
+                          ) : (
+                            <div className="w-9 h-9 rounded-lg bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-[9px] text-slate-500">
+                              {t.noImageLabel}
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="font-semibold line-clamp-1 text-slate-900 dark:text-slate-100">
+                              {productContext.name}
+                            </div>
+                            <div className="text-[10px] text-orange-600 dark:text-orange-300 font-semibold">
+                              {productContext.price}{" "}
+                              {productContext.currency}
+                            </div>
+                            <div className="text-[9px] text-slate-500 dark:text-slate-400">
+                              {t.productAttachmentHint}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       <div className="text-[10px] opacity-80 mb-0.5 flex items-center justify-between gap-2">
                         <span>{senderLabel}</span>
                         <span className="font-mono flex items-center">
@@ -917,41 +1058,46 @@ const ChatPage: React.FC = () => {
 
             {otherTyping && (
               <div className="px-1 pt-1 text-[11px] text-slate-500 italic">
-                Typing....
+                {t.typingIndicator}
               </div>
             )}
 
             <div ref={messagesEndRef} />
           </div>
 
-          {/* PINNED PRODUCT */}
-          {effectiveProduct && (
+          {/* PINNED PRODUCT (kutoka conversation au product list) */}
+          {pinnedProduct && (
             <div className="border-t border-slate-200 dark:border-slate-800 px-3 py-2 bg-slate-50 dark:bg-slate-900 flex items-center gap-2">
-              {productImage ? (
+              {pinnedProductImage ? (
                 <img
-                  src={productImage}
-                  alt={effectiveProduct.name}
+                  src={pinnedProductImage}
+                  alt={pinnedProduct.name}
                   className="w-10 h-10 rounded-lg object-cover border border-slate-200"
                 />
               ) : (
                 <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-[9px] text-slate-400">
-                  No image
+                  {t.noImageLabel}
                 </div>
               )}
               <div className="flex-1 min-w-0">
                 <div className="text-[11px] font-medium text-slate-800 dark:text-slate-100 line-clamp-1">
-                  {effectiveProduct.name}
+                  {pinnedProduct.name}
                 </div>
                 <div className="text-[10px] text-orange-600 font-semibold">
-                  {effectiveProduct.price} {effectiveProduct.currency}
+                  {pinnedProduct.price} {pinnedProduct.currency}
                 </div>
                 <button
                   type="button"
                   onClick={() => setProductModalOpen(true)}
                   className="mt-0.5 text-[10px] text-slate-600 dark:text-slate-300 underline underline-offset-2 hover:text-slate-900"
                 >
-                  Soma maelezo ya bidhaa
+                  {t.readProductDetails}
                 </button>
+                {showProductPinned && productContext && (
+                  <p className="mt-0.5 text-[9px] text-slate-400 dark:text-slate-500">
+                    {t.productPinnedHint}
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -965,7 +1111,7 @@ const ChatPage: React.FC = () => {
               value={newMessage}
               onChange={handleChangeMessage}
               className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-slate-900 dark:text-white resize-none h-10"
-              placeholder="Andika ujumbe wako hapa..."
+              placeholder={t.inputPlaceholder}
               autoComplete="off"
             />
             <button
@@ -975,7 +1121,7 @@ const ChatPage: React.FC = () => {
               }
               className="px-4 py-2 rounded-full bg-orange-500 text-white text-xs font-medium hover:bg-orange-600 disabled:opacity-60"
             >
-              {sending ? "Inatuma..." : "Tuma"}
+              {sending ? t.sendButtonSending : t.sendButtonIdle}
             </button>
           </form>
         </section>
@@ -984,7 +1130,7 @@ const ChatPage: React.FC = () => {
       <MainFooter />
 
       {/* PRODUCT MODAL */}
-      {productModalOpen && effectiveProduct && (
+      {productModalOpen && modalProduct && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4">
           <div className="max-w-sm w-full rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl p-4 relative">
             <button
@@ -996,32 +1142,32 @@ const ChatPage: React.FC = () => {
             </button>
 
             <div className="flex gap-3 mb-3">
-              {productImage ? (
+              {modalProductImage ? (
                 <img
-                  src={productImage}
-                  alt={effectiveProduct.name}
+                  src={modalProductImage}
+                  alt={modalProduct.name}
                   className="w-16 h-16 rounded-xl object-cover border border-slate-200"
                 />
               ) : (
                 <div className="w-16 h-16 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-[10px] text-slate-400">
-                  No image
+                  {t.noImageLabel}
                 </div>
               )}
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-semibold text-slate-900 dark:text-white line-clamp-2">
-                  {effectiveProduct.name}
+                  {modalProduct.name}
                 </div>
                 <div className="mt-1 text-[12px] text-orange-600 font-bold">
-                  {effectiveProduct.price} {effectiveProduct.currency}
+                  {modalProduct.price} {modalProduct.currency}
                 </div>
-                {effectiveProduct.likes_count !== undefined && (
+                {modalProduct.likes_count !== undefined && (
                   <div className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">
-                    ❤️ {effectiveProduct.likes_count} likes
+                    ❤️ {modalProduct.likes_count} {t.likesLabel}
                   </div>
                 )}
-                {effectiveProduct.sales_count !== undefined && (
+                {modalProduct.sales_count !== undefined && (
                   <div className="text-[10px] text-slate-500 dark:text-slate-400">
-                    🛒 {effectiveProduct.sales_count} sales
+                    🛒 {modalProduct.sales_count} {t.salesLabel}
                   </div>
                 )}
               </div>
@@ -1045,7 +1191,7 @@ const ChatPage: React.FC = () => {
                     {shopName}
                   </span>
                   <span className="text-[10px] text-slate-500 dark:text-slate-400">
-                    Seller wa hii bidhaa
+                    {t.modalSellerLabel}
                   </span>
                 </div>
               </div>
@@ -1054,13 +1200,18 @@ const ChatPage: React.FC = () => {
             {conversationDetail && (
               <div className="mb-3 border border-slate-100 dark:border-slate-800 rounded-xl p-2 text-[11px] text-slate-600 dark:text-slate-300">
                 <div className="font-semibold mb-1 text-[11px] text-slate-800 dark:text-slate-200">
-                  Washiriki wa mazungumzo
+                  {t.modalParticipantsTitle}
                 </div>
                 <div>
-                  👤 <span className="font-medium">Wewe</span> (buyer)
+                  👤 <span className="font-medium">{t.modalParticipantYou}</span>{" "}
+                  ({t.modalParticipantBuyerRole})
                 </div>
                 <div>
-                  🏪 <span className="font-medium">{shopName}</span> (seller)
+                  🏪{" "}
+                  <span className="font-medium">
+                    {t.modalParticipantSeller(shopName)}
+                  </span>{" "}
+                  ({t.modalParticipantSellerRole})
                 </div>
               </div>
             )}
@@ -1071,13 +1222,13 @@ const ChatPage: React.FC = () => {
                 onClick={() => setProductModalOpen(false)}
                 className="px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 text-[11px] text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex-1"
               >
-                Funga na endelea kuchat
+                {t.modalCloseAndContinue}
               </button>
               <Link
-                to={`/products/${effectiveProduct.id}`}
+                to={`/products/${modalProduct.id}`}
                 className="px-3 py-1.5 rounded-full bg-slate-900 text-white text-[11px] font-medium hover:bg-black"
               >
-                Fungua product page
+                {t.modalOpenProductPage}
               </Link>
             </div>
           </div>

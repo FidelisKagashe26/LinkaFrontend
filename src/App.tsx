@@ -16,9 +16,9 @@ import ProtectedRoute from "./components/ProtectedRoute";
 
 import AccountProfilePage from "./pages/AccountProfilePage/AccountProfilePage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
-import NotificationsPage from "./pages/NotificationsPage";
+import NotificationsPage from "./pages/NotificationsPage/NotificationsPage";
 import SellersPage from "./pages/SellersPage/SellersPage";
-import ChatPage from "./pages/ChatPage";
+import ChatPage from "./pages/ChatPage/ChatPage";
 import OrderDetailPage from "./pages/OrderDetailPage";
 
 const App: React.FC = () => {
